@@ -12,6 +12,7 @@ use Illuminate\Validation\Rule;
 
 class LevelPermissionController extends Controller
 {
+    
     /** Resolve level id dari ?level_id / ?level_name, atau fallback jika hanya ada 1 level */
     private function resolveLevelId(Request $request): ?int
     {

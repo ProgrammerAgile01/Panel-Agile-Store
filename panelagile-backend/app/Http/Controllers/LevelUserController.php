@@ -6,88 +6,127 @@ use App\Models\LevelUser;
 use Illuminate\Http\Request;
 use Maatwebsite\Excel\Facades\Excel;
 use App\Exports\LevelUsersExport;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Log;
 
 class LevelUserController extends Controller
 {
-    public function index()
-    {
-        try {
-            // get() sudah menyertakan accessor 'user_count'
-            $levelusers = LevelUser::orderByDesc('updated_at')->get();
-
-            return response()->json([
-                'success' => true,
-                'message' => "Berhasil menampilkan data LevelUser",
-                'data' => $levelusers,
-            ], 200);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => "Gagal menampilkan data LevelUser " . $e->getMessage(),
-            ], 500);
+    /** GET /api/level_users */
+  public function index()
+{
+    try {
+        $cols = ['id', 'nama_level'];
+        foreach (['deskripsi','status','default_homepage'] as $c) {
+            if (\Illuminate\Support\Facades\Schema::hasColumn('sys_level_user', $c)) $cols[] = $c;
         }
-    }
+        $orderCol = \Illuminate\Support\Facades\Schema::hasColumn('sys_level_user','updated_at') ? 'updated_at' : 'id';
 
+        $levels = \App\Models\LevelUser::query()
+            ->select($cols)
+            ->orderByDesc($orderCol)
+            ->get();
+
+        // ⬇️ sertakan user_count (pakai accessor di model)
+        $rows = $levels->map(fn(\App\Models\LevelUser $m) => [
+            'id'               => (int) $m->id,
+            'nama_level'       => $m->nama_level ?? '',
+            'deskripsi'        => $m->deskripsi ?? '',
+            'status'           => $m->status ?? 'Aktif',
+            'default_homepage' => $m->default_homepage ?? 'dashboard',
+            'user_count'       => $m->user_count,   // <— penting
+        ])->values();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Berhasil menampilkan data LevelUser',
+            'data'    => $rows,
+        ], 200);
+
+    } catch (\Throwable $e) {
+        \Illuminate\Support\Facades\Log::error('LevelUser index error', ['msg' => $e->getMessage()]);
+        return response()->json([
+            'success' => false,
+            'message' => 'Gagal menampilkan data LevelUser: ' . $e->getMessage(),
+        ], 500);
+    }
+}
+
+
+    /** GET /api/level_users/{id} */
     public function show($id)
     {
         try {
-            $leveluser = LevelUser::findOrFail($id);
+            $level = LevelUser::findOrFail($id);
+            $data = [
+                'id'               => (int) $level->id,
+                'nama_level'       => $level->nama_level ?? '',
+                'deskripsi'        => $level->deskripsi ?? '',
+                'status'           => $level->status ?? 'Aktif',
+                'default_homepage' => $level->default_homepage ?? 'dashboard',
+                'user_count'       => $level->user_count, // dihitung on-demand
+            ];
 
             return response()->json([
                 'success' => true,
-                'message' => "Berhasil menampilkan data LevelUser dari id: $id",
-                'data' => $leveluser,
+                'message' => 'OK',
+                'data'    => $data,
             ], 200);
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             return response()->json([
                 'success' => false,
-                'message' => "Gagal menampilkan data LevelUser dari id: $id " . $e->getMessage(),
+                'message' => "Gagal menampilkan data LevelUser id=$id: " . $e->getMessage(),
             ], 500);
         }
     }
 
+    /** POST /api/level_users */
     public function store(Request $request)
     {
+        // Tidak ada hard-guard di sini → biarkan matrix permission (add) yang menentukan
         $validated = $request->validate([
-            'nama_level' => 'required|string|max:255',
-            'deskripsi' => 'nullable|string',
-            'status' => 'required|in:Aktif,Tidak Aktif',
+            'nama_level'       => 'required|string|max:255',
+            'deskripsi'        => 'nullable|string',
+            'status'           => 'required|in:Aktif,Tidak Aktif',
             'default_homepage' => 'nullable|string|max:100',
         ]);
 
-        $leveluser = LevelUser::create($validated);
+        $row = LevelUser::create($validated);
 
         return response()->json([
             'success' => true,
             'message' => 'LevelUser berhasil dibuat',
-            'data' => $leveluser
+            'data'    => $row
         ], 201);
     }
 
+    /** PUT /api/level_users/{id} */
     public function update(Request $request, $id)
     {
-        $leveluser = LevelUser::findOrFail($id);
+        // Admin akan tertahan di middleware permission:edit,level-user
+        $row = LevelUser::findOrFail($id);
 
         $validated = $request->validate([
-            'nama_level' => 'required|string|max:255',
-            'deskripsi' => 'nullable|string',
-            'status' => 'required|in:Aktif,Tidak Aktif',
+            'nama_level'       => 'required|string|max:255',
+            'deskripsi'        => 'nullable|string',
+            'status'           => 'required|in:Aktif,Tidak Aktif',
             'default_homepage' => 'nullable|string|max:100',
         ]);
 
-        $leveluser->update($validated);
+        $row->update($validated);
 
         return response()->json([
             'success' => true,
             'message' => 'LevelUser berhasil diupdate',
-            'data' => $leveluser
+            'data'    => $row
         ], 200);
     }
 
+    /** DELETE /api/level_users/{id} */
     public function destroy($id)
     {
-        $leveluser = LevelUser::findOrFail($id);
-        $leveluser->delete();
+        // Akses delete ditentukan oleh permission:delete,level-user
+        $row = LevelUser::findOrFail($id);
+        $row->delete();
 
         return response()->json([
             'success' => true,
@@ -95,9 +134,7 @@ class LevelUserController extends Controller
         ], 200);
     }
 
-    /**
-     * Export Excel (.xlsx) — gunakan export yang juga menghitung DISTINCT
-     */
+    /** GET /api/level_users/export */
     public function exportExcel()
     {
         return Excel::download(new LevelUsersExport, 'level_users.xlsx');

@@ -12,6 +12,7 @@ use Illuminate\Validation\Rule;
 class UserManagementController extends Controller
 {
     /** GET /api/user_managements */
+    
     public function index(): JsonResponse
     {
         $rows = UserManagement::query()

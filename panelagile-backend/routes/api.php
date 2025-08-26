@@ -1,41 +1,125 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
+
 use App\Http\Controllers\AuthController;
-use App\Http\Controllers\LevelUserController;
-use App\Http\Controllers\UserManagementController;
 use App\Http\Controllers\NavItemController;
 use App\Http\Controllers\LevelPermissionController;
+use App\Http\Controllers\LevelUserController;
+use App\Http\Controllers\UserManagementController;
 
+use App\Http\Middleware\PermissionMiddleware; // ← pakai FQCN middleware
 
-// Level User
-
-Route::get('level_users/export', [LevelUserController::class, 'exportExcel']);
-Route::apiResource('level_users', LevelUserController::class);
-Route::apiResource('user_managements', UserManagementController::class);
-
-// Nav Items
-Route::apiResource('nav-items', NavItemController::class);
-// Proteksi CRUD nav-items di balik JWT (kalau kamu butuh kelola menu dari UI admin)
-Route::middleware('jwt.auth')->group(function () {
-    Route::post  ('/nav-items',                 [NavItemController::class, 'store']);
-    Route::get   ('/nav-items/{nav_item}',      [NavItemController::class, 'show']);
-    Route::put   ('/nav-items/{nav_item}',      [NavItemController::class, 'update']);
-    Route::delete('/nav-items/{nav_item}',      [NavItemController::class, 'destroy']);
-});
-
-// Level ↔ NavItem Permissions
-Route::get('/level-permissions', [LevelPermissionController::class, 'index']);  // ?level_id=1
-Route::post('/level-permissions/bulk', [LevelPermissionController::class, 'bulkUpsert']);
-Route::get('/level-permissions/stats', [LevelPermissionController::class, 'stats']);
-Route::get('/level-permissions/export-csv', [LevelPermissionController::class, 'exportCsv']);
-// Public
+/*
+|--------------------------------------------------------------------------
+| AUTH
+|--------------------------------------------------------------------------
+| Login/refresh publik, endpoint lain di-protect jwt.auth
+*/
 Route::prefix('auth')->group(function () {
-    Route::post('/login', [AuthController::class, 'login']);
+    Route::post('/login',   [AuthController::class, 'login']);
     Route::post('/refresh', [AuthController::class, 'refresh'])->middleware('jwt.refresh');
 
     Route::middleware('jwt.auth')->group(function () {
-        Route::get('/me', [AuthController::class, 'me']);
+        Route::get('/me',      [AuthController::class, 'me']);
         Route::post('/logout', [AuthController::class, 'logout']);
     });
 });
+
+/*
+|--------------------------------------------------------------------------
+| NAV ITEMS
+|--------------------------------------------------------------------------
+| index: publik (controller akan filter tree berdasarkan JWT bila ada token)
+| CRUD: di-protect jwt.auth saja (kalau mau ketat, tambahkan PermissionMiddleware).
+*/
+Route::get('/nav-items', [NavItemController::class, 'index']); // ?format=flat|tree
+
+Route::middleware(['jwt.auth'])->group(function () {
+    Route::post  ('/nav-items',            [NavItemController::class, 'store']);
+    Route::get   ('/nav-items/{nav_item}', [NavItemController::class, 'show']);
+    Route::put   ('/nav-items/{nav_item}', [NavItemController::class, 'update']);
+    Route::delete('/nav-items/{nav_item}', [NavItemController::class, 'destroy']);
+
+    // kalau kamu punya slug khusus utk kelola menu (mis. 'atur-menu'), aktifkan:
+    // ->middleware(PermissionMiddleware::class . ':edit,atur-menu') dst.
+});
+
+/*
+|--------------------------------------------------------------------------
+| LEVEL ↔ NAV-ITEM PERMISSIONS (Matrix)
+|--------------------------------------------------------------------------
+| Disarankan pakai slug 'matrix-level' (lihat nav item "Matrix Level")
+*/
+Route::middleware('jwt.auth')->group(function () {
+    Route::get ('/level-permissions',            [LevelPermissionController::class, 'index'])
+        ->middleware(PermissionMiddleware::class . ':view,matrix-level');        // ?level_id= / ?level_name=
+    Route::post('/level-permissions/bulk',       [LevelPermissionController::class, 'bulkUpsert'])
+        ->middleware(PermissionMiddleware::class . ':edit,matrix-level');
+    Route::get ('/level-permissions/stats',      [LevelPermissionController::class, 'stats'])
+        ->middleware(PermissionMiddleware::class . ':view,matrix-level');
+    Route::get ('/level-permissions/export-csv', [LevelPermissionController::class, 'exportCsv'])
+        ->middleware(PermissionMiddleware::class . ':print,matrix-level');
+});
+
+/*
+|--------------------------------------------------------------------------
+| LEVEL USERS  (Admin boleh VIEW/ADD/DELETE, TIDAK bisa EDIT → set edit=false di matrix)
+|--------------------------------------------------------------------------
+| Slug: level-user
+*/
+Route::middleware(['jwt.auth'])->group(function () {
+    // VIEW
+    Route::get ('/level_users',        [LevelUserController::class, 'index'])
+        ->middleware(PermissionMiddleware::class . ':view,level-user');
+    Route::get ('/level_users/{id}',   [LevelUserController::class, 'show'])
+        ->middleware(PermissionMiddleware::class . ':view,level-user');
+    Route::get ('/level_users/export', [LevelUserController::class, 'exportExcel'])
+        ->middleware(PermissionMiddleware::class . ':view,level-user');
+
+    // MUTASI — Admin akan tertahan di EDIT (karena edit=false di sys_permissions)
+    Route::post('/level_users',        [LevelUserController::class, 'store'])
+        ->middleware(PermissionMiddleware::class . ':add,level-user');
+    Route::put ('/level_users/{id}',   [LevelUserController::class, 'update'])
+        ->middleware(PermissionMiddleware::class . ':edit,level-user');
+    Route::delete('/level_users/{id}', [LevelUserController::class, 'destroy'])
+        ->middleware(PermissionMiddleware::class . ':delete,level-user');
+});
+
+/*
+|--------------------------------------------------------------------------
+| USER MANAGEMENT (Data User)
+|--------------------------------------------------------------------------
+| Slug: data-user  (lihat nav item "Data User"; sesuaikan jika beda)
+*/
+Route::middleware(['jwt.auth'])->group(function () {
+    Route::get   ('/user_managements',      [UserManagementController::class, 'index'])
+        ->middleware(PermissionMiddleware::class . ':view,data-user');
+    Route::post  ('/user_managements',      [UserManagementController::class, 'store'])
+        ->middleware(PermissionMiddleware::class . ':add,data-user');
+    Route::put   ('/user_managements/{id}', [UserManagementController::class, 'update'])
+        ->middleware(PermissionMiddleware::class . ':edit,data-user');
+    Route::delete('/user_managements/{id}', [UserManagementController::class, 'destroy'])
+        ->middleware(PermissionMiddleware::class . ':delete,data-user');
+});
+
+/*
+|--------------------------------------------------------------------------
+| DIAGNOSTIC (opsional)
+|--------------------------------------------------------------------------
+*/
+// Route::middleware('jwt.auth')->get('/__whoami', function () {
+//     $p = \Tymon\JWTAuth\Facades\JWTAuth::getPayload();
+//     return ['user_id'=>$p->get('sub'),'level_id'=>$p->get('level_id'),'level_name'=>$p->get('level_name')];
+// });
+// Route::middleware('jwt.auth')->get('/__check/permission/{action}/{slug}', function ($action,$slug) {
+//     $p = \Tymon\JWTAuth\Facades\JWTAuth::getPayload();
+//     $levelId = (int)$p->get('level_id');
+//     $norm = \Illuminate\Support\Str::of($slug)->trim()->lower()->replace(' ','-')->replace('_','-')->replace('--','-')->value();
+//     $nav  = \App\Models\NavItem::whereRaw('LOWER(TRIM(slug)) = ?', [$norm])->first();
+//     if (!$nav) return ['ok'=>false,'reason'=>"slug '{$norm}' not found"];
+//     $perm = \App\Models\LevelNavItemPermission::where('level_user_id',$levelId)->where('nav_item_id',$nav->id)->first();
+//     if (!$perm) return ['ok'=>false,'reason'=>'no row in sys_permissions'];
+//     $map = ['access'=>$perm->access,'view'=>$perm->view,'add'=>$perm->add,'edit'=>$perm->edit,'delete'=>$perm->delete,'approve'=>$perm->approve,'print'=>$perm->print];
+//     return ['ok'=> (bool)($map[$action]??false), 'action'=>$action, 'slug'=>$norm, 'nav_id'=>$nav->id, 'level_id'=>$levelId, 'flags'=>$map];
+// });

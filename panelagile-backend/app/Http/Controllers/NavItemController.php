@@ -17,6 +17,8 @@ class NavItemController extends Controller
      * - Default (tanpa query): kembalikan daftar FLAT untuk Matrix Level (TANPA filter role).
      * - ?format=tree : kembalikan TREE untuk Header (DENGAN filter role/permission dari JWT).
      */
+   
+
     public function index(Request $request): JsonResponse
     {
         $format = $request->query('format', 'flat'); // 'flat' | 'tree'
