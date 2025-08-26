@@ -1,12 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
-// Header sudah auto-fetch /api/nav-items di dalamnya,
-// props tetap sama agar tidak mengubah UI/komponen lain.
+// Header tetap sama (auto-fetch /api/nav-items di dalamnya)
 import { UnifiedHeader } from "@/components/unified-header";
-
-// Halaman/konten yang sudah ada — tidak diubah.
 import { DashboardOverview } from "@/components/dashboard-overview";
 import { ProductManagement } from "@/components/product-management";
 import { CustomerManagement } from "@/components/customer-management";
@@ -21,23 +18,71 @@ import { LevelUser } from "@/components/level-user";
 import { MatrixLevel } from "@/components/matrix-level";
 import { DataUser } from "@/components/data-user";
 
+// API helpers
+import { login as apiLogin, me as apiMe, logout as apiLogout } from "@/lib/api";
+import { getToken, clearToken } from "@/lib/auth";
+
 export default function AdminDashboard() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [activePage, setActivePage] = useState("dashboard");
+  const [loading, setLoading] = useState(true);
 
-  const handleLogin = (email: string, password: string) => {
-    // Simple demo authentication
-    if (email === "admin@agilestore.com" && password === "admin123") {
+  // Cek sesi di awal
+  useEffect(() => {
+    const bootstrap = async () => {
+      try {
+        const token = getToken();
+        if (token) {
+          await apiMe(); // validasi token + siapkan header auto-fetch
+          setIsAuthenticated(true);
+        } else {
+          setIsAuthenticated(false);
+        }
+      } catch {
+        // token invalid
+        clearToken();
+        setIsAuthenticated(false);
+      } finally {
+        setLoading(false);
+      }
+    };
+    bootstrap();
+  }, []);
+
+  const handleLogin = async (email: string, password: string) => {
+    try {
+      // page.tsx -> handleLogin
+const data = await apiLogin(email, password);
+
+      // Jika API mengirim default_homepage level aktif, gunakan itu
+      const defaultPage = data?.current_level?.default_homepage || "dashboard";
+      setActivePage(defaultPage);
       setIsAuthenticated(true);
-    } else {
-      alert("Invalid credentials. Use: admin@agilestore.com / admin123");
+    } catch (e: any) {
+      alert(`Login gagal: ${e?.message || "Unknown error"}`);
+      setIsAuthenticated(false);
     }
   };
 
-  const handleLogout = () => {
-    setIsAuthenticated(false);
-    setActivePage("dashboard");
+  const handleLogout = async () => {
+    try {
+      await apiLogout();
+    } catch {
+      // abaikan error; tetap logout local
+    } finally {
+      clearToken();
+      setIsAuthenticated(false);
+      setActivePage("dashboard");
+    }
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center text-muted-foreground">
+        Memuat...
+      </div>
+    );
+  }
 
   if (!isAuthenticated) {
     return <LoginForm onLogin={handleLogin} />;
@@ -84,7 +129,6 @@ export default function AdminDashboard() {
         onPageChange={setActivePage}
         onLogout={handleLogout}
       />
-
       <main className="pt-16 p-6">{renderContent()}</main>
     </div>
   );

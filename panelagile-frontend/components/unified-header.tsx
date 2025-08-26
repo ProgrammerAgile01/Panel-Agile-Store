@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -54,7 +54,8 @@ import {
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { PolishedSubmenu } from "./polished-submenu";
-import { fetchNavItems } from "@/lib/api"; // ← gunakan helper kamu yg sudah ada
+import { fetchNavItemsTree } from "@/lib/api";
+
 
 interface UnifiedHeaderProps {
   activePage: string;
@@ -62,7 +63,7 @@ interface UnifiedHeaderProps {
   onLogout?: () => void;
 }
 
-/** ====== Tipe dari backend (disederhanakan) ====== */
+/** ====== Tipe dari backend ====== */
 type ApiNavItem = {
   id: number;
   label: string;
@@ -108,7 +109,7 @@ const GROUP_MAP = {
   help: ["docs", "tutorials", "contact"],
 } as const;
 
-/** ====== Default menu (fallback visual persis seperti punyamu) ====== */
+/** ====== Default menu (fallback visual) ====== */
 const DEFAULT_MAIN = [
   {
     id: "products",
@@ -255,118 +256,77 @@ export function UnifiedHeader({
     "unread"
   );
 
-  // ====== NEW: state untuk nav backend (tetap default ke menu statis agar UI tidak berubah) ======
-  const [mainMenuItems, setMainMenuItems] = useState<any[]>(
-    DEFAULT_MAIN as any
-  );
+  // ====== NEW: state untuk nav backend (fallback default agar UI tetap sama) ======
+  const [mainMenuItems, setMainMenuItems] = useState<any[]>(DEFAULT_MAIN as any);
   const [moreMenuSections, setMoreMenuSections] = useState<any[]>(
     DEFAULT_MORE as any
   );
   const [loadingNav, setLoadingNav] = useState(false);
 
-  // ====== FETCH NAV ITEMS dari backend (fallback aman) ======
+  // ====== FETCH & FILTER NAV ITEMS dari backend berdasarkan role ======
   useEffect(() => {
-    let mounted = true;
-    (async () => {
-      try {
-        setLoadingNav(true);
-        // Kamu bisa pakai ?flat=1 agar selalu flat
-        const res = await fetchNavItems(); // /api/nav-items (tree atau flat)
-        const list: ApiNavItem[] =
-          Array.isArray(res) &&
-          res.length &&
-          (res[0] as any)?.children !== undefined
-            ? flattenNav(res)
-            : (res as ApiNavItem[]);
+  let mounted = true;
+  (async () => {
+    try {
+      setLoadingNav(true);
 
-        // filter aktif + sort by order_number
-        const usable = (list || [])
-          .filter((x) => x.is_active !== false)
-          .sort((a, b) => (a.order_number ?? 0) - (b.order_number ?? 0));
+      // Ambil menu dari API (tree sudah difilter sesuai role)
+      const res = await fetchNavItemsTree(); // /api/nav-items?format=tree
+      // res = array tree (bukan {success,data}), karena helper mengembalikan json.data
 
-        if (!usable.length) return; // kalau kosong, biarkan default
+      // Flatten tree
+      const list: ApiNavItem[] = Array.isArray(res) ? flattenNav(res) : [];
 
-        // Bangun peta slug → label (biar label dari backend muncul di UI yg sama)
-        const labelMap = new Map<string, string>();
-        usable.forEach((x) => {
-          if (x.slug && x.label) labelMap.set(x.slug, x.label);
-        });
+      if (!list || list.length === 0) return; // fallback ke default
 
-        // Util: update label jika slug cocok
-        const rewriteLabels = (arr: any[]) =>
-          arr.map((grp) => {
-            if (grp.items) {
-              return {
-                ...grp,
-                items: grp.items.map((it: any) => ({
-                  ...it,
-                  label: labelMap.get(it.id) ?? it.label,
-                })),
-              };
-            }
-            if (grp.sections) {
-              return {
-                ...grp,
-                sections: grp.sections.map((sec: any) => ({
-                  ...sec,
-                  items: sec.items.map((it: any) => ({
-                    ...it,
-                    label: labelMap.get(it.id) ?? it.label,
-                  })),
-                })),
-              };
-            }
-            return grp;
-          });
+      // ======= PENTING: gunakan hanya LEAVES (node tanpa children) =======
+      const leafNodes = list.filter((x) => !x.children || x.children.length === 0);
+      const leafSlugs = new Set(leafNodes.map((x) => x.slug).filter(Boolean));
 
-        // Tambahkan item baru dari backend yang belum ada di default (dimasukkan ke grup sesuai GROUP_MAP)
-        const knownSlugs = new Set<string>([
-          ...Object.values(GROUP_MAP).flat(),
-        ]);
+      // Map slug -> label (opsional, untuk sinkron label backend)
+      const labelMap = new Map<string, string>();
+      leafNodes.forEach((x) => {
+        if (x.slug && x.label) labelMap.set(x.slug, x.label);
+      });
 
-        const missing = usable.filter((x) => !knownSlugs.has(x.slug));
+      // helper: filter items di satu section by leafSlugs
+      const filterSectionItems = (items: any[]) =>
+        items
+          .filter((it) => leafSlugs.has(it.id)) // id = slug pada default menu
+          .map((it) => ({ ...it, label: labelMap.get(it.id) ?? it.label }));
 
-        // builder untuk grup new item ke "More → Help" (biar UI tidak berubah layout-nya)
-        const addToMoreHelp = (sections: any[]) => {
-          const idx = sections.findIndex((s) => s.id === "help");
-          const helpSec = idx >= 0 ? sections[idx] : null;
-          if (!helpSec) return sections;
-          const extraItems = missing.map((m) => ({
-            id: m.slug,
-            label: m.label || m.slug,
-            icon: FileText, // ikon default
-          }));
-          const newHelp = {
-            ...helpSec,
-            items: [...helpSec.items, ...extraItems],
-          };
-          const out = sections.slice();
-          out[idx] = newHelp;
-          return out;
-        };
+      // filter main (dengan sections)
+      const nextMain = (DEFAULT_MAIN as any)
+        .map((grp: any) => {
+          if (!grp.sections?.length) return grp;
+          const sections = grp.sections
+            .map((sec: any) => ({ ...sec, items: filterSectionItems(sec.items) }))
+            .filter((sec: any) => sec.items.length > 0);
+          return { ...grp, sections };
+        })
+        .filter((grp: any) => grp.sections?.some((s: any) => s.items.length > 0));
 
-        if (!mounted) return;
+      // filter more (flat items)
+      const nextMore = (DEFAULT_MORE as any)
+        .map((sec: any) => ({
+          ...sec,
+          items: filterSectionItems(sec.items),
+        }))
+        .filter((sec: any) => sec.items.length > 0);
 
-        // susun ulang urutan by order_number untuk slug yang diketahui per grup
-        // (kalau ingin benar-benar mengikuti order backend, bisa sorting ulang tiap daftar berdasarkan order_number)
-        const nextMain = rewriteLabels(DEFAULT_MAIN as any);
-        const nextMore = addToMoreHelp(rewriteLabels(DEFAULT_MORE as any));
-
-        setMainMenuItems(nextMain as any);
-        setMoreMenuSections(nextMore as any);
-      } catch (e) {
-        console.warn(
-          "Failed loading /api/nav-items. Using default static menus.",
-          e
-        );
-      } finally {
-        setLoadingNav(false);
-      }
-    })();
-    return () => {
-      mounted = false;
-    };
-  }, []);
+      if (!mounted) return;
+      if (nextMain.length > 0) setMainMenuItems(nextMain);
+      if (nextMore.length > 0) setMoreMenuSections(nextMore);
+    } catch (e) {
+      console.warn("Failed loading /api/nav-items. Using default static menus.", e);
+    } finally {
+      if (mounted) setLoadingNav(false);
+    }
+  })();
+  return () => {
+    mounted = false;
+  };
+}, []);
 
   // ====== Notifikasi mock (tidak diubah) ======
   const notifications = [
@@ -409,7 +369,6 @@ export function UnifiedHeader({
       ? notifications.filter((n) => n.unread)
       : notifications;
 
-  // ====== Helper judul (tidak diubah) ======
   const getPageTitle = () => {
     const allItems: any[] = [...mainMenuItems, ...moreMenuSections];
     for (const item of allItems) {
@@ -532,11 +491,7 @@ export function UnifiedHeader({
             className="lg:hidden hover:bg-primary/20"
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
           >
-            {mobileMenuOpen ? (
-              <X className="h-5 w-5" />
-            ) : (
-              <Menu className="h-5 w-5" />
-            )}
+            {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </Button>
 
           {/* ACTIONS RIGHT (UI sama) */}
@@ -560,26 +515,16 @@ export function UnifiedHeader({
                 >
                   <div className="flex items-center justify-between h-11 px-3 rounded-lg hover:bg-primary/10 transition-colors">
                     <div className="flex items-center gap-3">
-                      {theme === "dark" ? (
-                        <Moon className="h-4 w-4" />
-                      ) : (
-                        <Sun className="h-4 w-4" />
-                      )}
+                      {theme === "dark" ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
                       <span className="font-medium">Theme</span>
                     </div>
                     <div className="flex items-center gap-2">
-                      <span className="text-sm text-muted-foreground">
-                        Light
-                      </span>
+                      <span className="text-sm text-muted-foreground">Light</span>
                       <Switch
                         checked={theme === "dark"}
-                        onCheckedChange={(checked) =>
-                          setTheme(checked ? "dark" : "light")
-                        }
+                        onCheckedChange={(checked) => setTheme(checked ? "dark" : "light")}
                       />
-                      <span className="text-sm text-muted-foreground">
-                        Dark
-                      </span>
+                      <span className="text-sm text-muted-foreground">Dark</span>
                     </div>
                   </div>
 
@@ -749,8 +694,7 @@ export function UnifiedHeader({
                           You're all caught up!
                         </h3>
                         <p className="text-xs text-muted-foreground text-center">
-                          No {notificationTab === "unread" ? "unread" : ""}{" "}
-                          notifications at the moment.
+                          No {notificationTab === "unread" ? "unread" : ""} notifications at the moment.
                         </p>
                       </div>
                     )}
@@ -811,24 +755,16 @@ export function UnifiedHeader({
                           section.items.map((subItem: any) => (
                             <Button
                               key={subItem.id}
-                              variant={
-                                activePage === subItem.id
-                                  ? "secondary"
-                                  : "ghost"
-                              }
+                              variant={activePage === subItem.id ? "secondary" : "ghost"}
                               className={`w-full justify-start text-sm hover:bg-primary/20 ${
-                                activePage === subItem.id
-                                  ? "bg-primary/20 text-primary"
-                                  : ""
+                                activePage === subItem.id ? "bg-primary/20 text-primary" : ""
                               }`}
                               onClick={() => {
                                 onPageChange(subItem.id);
                                 setMobileMenuOpen(false);
                               }}
                             >
-                              {subItem.icon && (
-                                <subItem.icon className="h-4 w-4 mr-3" />
-                              )}
+                              {subItem.icon && <subItem.icon className="h-4 w-4 mr-3" />}
                               {subItem.label}
                               {subItem.badge && (
                                 <Badge
@@ -847,9 +783,7 @@ export function UnifiedHeader({
                     <Button
                       variant={activePage === item.id ? "secondary" : "ghost"}
                       className={`w-full justify-start hover:bg-primary/20 ${
-                        activePage === item.id
-                          ? "bg-primary/20 text-primary"
-                          : ""
+                        activePage === item.id ? "bg-primary/20 text-primary" : ""
                       }`}
                       onClick={() => {
                         onPageChange(item.id);
@@ -885,13 +819,9 @@ export function UnifiedHeader({
                       {section.items.map((item: any) => (
                         <Button
                           key={item.id}
-                          variant={
-                            activePage === item.id ? "secondary" : "ghost"
-                          }
+                          variant={activePage === item.id ? "secondary" : "ghost"}
                           className={`w-full justify-start text-sm hover:bg-primary/20 ${
-                            activePage === item.id
-                              ? "bg-primary/20 text-primary"
-                              : ""
+                            activePage === item.id ? "bg-primary/20 text-primary" : ""
                           }`}
                           onClick={() => {
                             onPageChange(item.id);

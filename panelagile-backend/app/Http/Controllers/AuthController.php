@@ -1,6 +1,4 @@
 <?php
-// app/Http/Controllers/AuthController.php
-
 namespace App\Http\Controllers;
 
 use App\Models\UserManagement;
@@ -15,11 +13,6 @@ use Tymon\JWTAuth\Facades\JWTAuth;
 
 class AuthController extends Controller
 {
-    /**
-     * POST /api/auth/login
-     * body: { email, password, level_id? | level_name? }
-     * - Login & pilih level (role) yang aktif untuk sesi ini.
-     */
     public function login(Request $request)
     {
         $v = Validator::make($request->all(), [
@@ -28,7 +21,6 @@ class AuthController extends Controller
             'level_id' => 'nullable|integer|exists:sys_level_user,id',
             'level_name' => 'nullable|string',
         ]);
-
         if ($v->fails()) {
             return response()->json(['success' => false, 'message' => $v->errors()->first()], 422);
         }
@@ -38,7 +30,6 @@ class AuthController extends Controller
             return response()->json(['success' => false, 'message' => 'Email atau password salah'], 401);
         }
 
-        // Tentukan level aktif
         $currentLevel = $this->resolveLevel($user, $request->input('level_id'), $request->input('level_name'));
         if (!$currentLevel) {
             return response()->json([
@@ -47,15 +38,12 @@ class AuthController extends Controller
             ], 422);
         }
 
-        // Buat token dengan klaim level aktif
         $customClaims = [
             'level_id' => $currentLevel->id,
             'level_name' => $currentLevel->nama_level,
         ];
-
         $token = JWTAuth::claims($customClaims)->fromUser($user);
 
-        // Update last_login
         $user->update(['last_login_at' => Carbon::now()]);
 
         return response()->json([
@@ -63,72 +51,71 @@ class AuthController extends Controller
             'message' => 'Login berhasil',
             'token' => $token,
             'token_type' => 'bearer',
-            'expires_in' => JWTAuth::factory()->getTTL() * 60, // detik
+            'expires_in' => JWTAuth::factory()->getTTL() * 60,
             'user' => [
                 'id' => $user->id,
                 'nama' => $user->nama,
                 'email' => $user->email,
                 'status' => $user->status,
                 'levels' => $user->levels,
+                'last_login_at' => optional($user->last_login_at)->toIso8601String(),
             ],
             'current_level' => [
                 'id' => $currentLevel->id,
                 'name' => $currentLevel->nama_level,
-                'default_homepage' => $currentLevel->default_homepage,
+                'default_homepage' => $currentLevel->default_homepage ?? 'dashboard',
             ],
             'permissions' => $this->getLevelPermissions($currentLevel->id),
             'menus' => $this->buildAllowedMenuTree($currentLevel->id),
         ]);
     }
 
-    /**
-     * GET /api/auth/me
-     * - Ambil user & klaim dari token aktif.
-     */
     public function me()
     {
-        // Pastikan token dikirim di header Authorization: Bearer <token>
-        $user = JWTAuth::parseToken()->authenticate();
-        $claims = JWTAuth::getPayload();
+        try {
+            $user = JWTAuth::parseToken()->authenticate();
+        } catch (\Throwable $e) {
+            return response()->json(['success' => false, 'message' => 'Unauthenticated. Silakan login.'], 401);
+        }
 
-        $levelId = $claims->get('level_id');
+        $claims = JWTAuth::getPayload();
+        $levelId = (int) $claims->get('level_id');
+        $levelName = $claims->get('level_name');
 
         return response()->json([
             'success' => true,
-            'user' => $user,
+            'user' => [
+                'id' => $user->id,
+                'nama' => $user->nama,
+                'email' => $user->email,
+                'status' => $user->status,
+                'levels' => $user->levels,
+                'last_login_at' => optional($user->last_login_at)->toIso8601String(),
+            ],
             'level' => [
                 'id' => $levelId,
-                'name' => $claims->get('level_name'),
+                'name' => $levelName,
             ],
             'permissions' => $this->getLevelPermissions($levelId),
             'menus' => $this->buildAllowedMenuTree($levelId),
         ]);
     }
 
-    /**
-     * POST /api/auth/refresh
-     * - Refresh token dari token aktif di header.
-     */
     public function refresh()
     {
         try {
             $newToken = JWTAuth::parseToken()->refresh();
-
             return response()->json([
                 'success' => true,
                 'token' => $newToken,
                 'token_type' => 'bearer',
-                'expires_in' => JWTAuth::factory()->getTTL() * 60, // detik
+                'expires_in' => JWTAuth::factory()->getTTL() * 60,
             ]);
         } catch (\Throwable $e) {
             return response()->json(['success' => false, 'message' => 'Gagal refresh token'], 401);
         }
     }
 
-    /**
-     * POST /api/auth/logout
-     * - Invalidate token aktif (blacklist).
-     */
     public function logout()
     {
         try {
@@ -141,10 +128,6 @@ class AuthController extends Controller
 
     /* ================= Helpers ================= */
 
-    /**
-     * Menentukan LevelUser aktif berdasarkan prioritas:
-     * 1) level_id  2) level_name  3) user->role  4) levels_json
-     */
     private function resolveLevel(UserManagement $user, $levelId = null, $levelName = null): ?LevelUser
     {
         if (!empty($levelId)) {
@@ -154,18 +137,15 @@ class AuthController extends Controller
             return LevelUser::where('nama_level', $levelName)->first();
         }
         if ($user->role) {
-            return LevelUser::find($user->role);
+            if ($lvl = LevelUser::find($user->role)) return $lvl;
         }
-        if (!empty($user->levels_json)) {
-            return LevelUser::whereIn('nama_level', $user->levels_json)->first();
+        $list = $user->levels ?? [];
+        if (!empty($list)) {
+            return LevelUser::whereIn('nama_level', (array) $list)->first();
         }
         return null;
     }
 
-    /**
-     * Ambil daftar permission per menu (slug/label) untuk level tertentu.
-     * Menggunakan tabel sys_permissions sesuai model LevelNavItemPermission.
-     */
     private function getLevelPermissions(int $levelId): array
     {
         $rows = LevelNavItemPermission::query()
@@ -195,65 +175,57 @@ class AuthController extends Controller
     }
 
     /**
-     * Bangun tree menu aktif lalu filter yang diizinkan oleh permission level.
+     * Build pohon menu & filter hanya yang diizinkan (allowed sendiri atau punya descendant allowed).
+     * NB: implementasi ulang supaya tidak pakai “property dinamis” pada model.
      */
     private function buildAllowedMenuTree(int $levelId): array
     {
-        // Ambil nav_item_id yang allowed
-        $allowed = LevelNavItemPermission::where('level_user_id', $levelId)
+        $allowedIds = LevelNavItemPermission::where('level_user_id', $levelId)
             ->where('access', true)
             ->pluck('nav_item_id')
+            ->map(fn($v) => (int) $v)
             ->toArray();
 
-        // Semua item aktif
         $items = NavItem::active()
             ->orderBy('parent_id')
             ->orderBy('order_number')
-            ->get();
+            ->get(['id','label','slug','icon','parent_id','order_number']);
 
-        // Index by id, siapkan node
-        $byId = $items->keyBy('id');
-        $tree = [];
-
+        // Map id -> node dasar
+        $nodes = [];
         foreach ($items as $it) {
-            $node = [
-                'id' => $it->id,
+            $nodes[$it->id] = [
+                'id' => (int) $it->id,
                 'label' => $it->label,
                 'slug' => $it->slug,
                 'icon' => $it->icon,
-                'parent_id' => $it->parent_id,
-                'order_number' => $it->order_number,
-                'allowed' => in_array($it->id, $allowed, true),
+                'parent_id' => $it->parent_id ? (int) $it->parent_id : null,
+                'order_number' => (int) $it->order_number,
+                'allowed' => in_array((int) $it->id, $allowedIds, true),
                 'children' => [],
             ];
-            $byId[$it->id]->_node = $node;
         }
 
-        // Susun parent-child
-        foreach ($items as $it) {
-            $node = $byId[$it->id]->_node;
-            if ($it->parent_id && isset($byId[$it->parent_id])) {
-                $parent = $byId[$it->parent_id]->_node;
-                $parent['children'][] = $node;
-                $byId[$it->parent_id]->_node = $parent;
-            } else {
-                $tree[] = $node;
-            }
+        // Bangun adjacency (parent -> [child ids])
+        $childrenMap = [];
+        foreach ($nodes as $id => $n) {
+            $pid = $n['parent_id'];
+            $childrenMap[$pid ?? 0][] = $id; // pakai 0 utk root
         }
 
-        // Filter cabang yang tidak punya allowed descendant
-        $filterFn = function (array $nodes) use (&$filterFn) {
-            $res = [];
-            foreach ($nodes as $n) {
-                $n['children'] = $filterFn($n['children']);
-                $keep = $n['allowed'] || count($n['children']) > 0;
-                if ($keep) {
-                    $res[] = $n;
-                }
+        // Recursively build + filter
+        $build = function ($parentId) use (&$build, &$nodes, &$childrenMap): array {
+            $childIds = $childrenMap[$parentId ?? 0] ?? [];
+            $out = [];
+            foreach ($childIds as $cid) {
+                $node = $nodes[$cid];
+                $node['children'] = $build($cid);
+                $keep = $node['allowed'] || count($node['children']) > 0;
+                if ($keep) $out[] = $node;
             }
-            return $res;
+            return $out;
         };
 
-        return $filterFn($tree);
+        return $build(null);
     }
 }

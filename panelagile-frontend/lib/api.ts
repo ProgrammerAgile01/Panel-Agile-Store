@@ -240,3 +240,13 @@ export async function saveLevelPermissions(
     permissions,
   });
 }
+
+export async function fetchNavItemsTree() {
+  const res = await fetch(`${API_URL}/nav-items?format=tree`, {
+    headers: authHeaders({ Accept: "application/json" }),
+    cache: "no-store",
+  });
+  if (!res.ok) return parseError(res);
+  const json = await res.json();
+  return json.data ?? [];        // <— kembalikan langsung array
+}

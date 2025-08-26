@@ -13,6 +13,7 @@ return new class extends Migration {
             // Identitas dasar
             $table->string('nama');
             $table->string('email')->unique();
+            $table->string('password');
 
             // Role utama (opsional) → relasi ke sys_level_user.id
             $table->foreignId('role')

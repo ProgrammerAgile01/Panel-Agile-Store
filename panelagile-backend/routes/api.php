@@ -16,6 +16,13 @@ Route::apiResource('user_managements', UserManagementController::class);
 
 // Nav Items
 Route::apiResource('nav-items', NavItemController::class);
+// Proteksi CRUD nav-items di balik JWT (kalau kamu butuh kelola menu dari UI admin)
+Route::middleware('jwt.auth')->group(function () {
+    Route::post  ('/nav-items',                 [NavItemController::class, 'store']);
+    Route::get   ('/nav-items/{nav_item}',      [NavItemController::class, 'show']);
+    Route::put   ('/nav-items/{nav_item}',      [NavItemController::class, 'update']);
+    Route::delete('/nav-items/{nav_item}',      [NavItemController::class, 'destroy']);
+});
 
 // Level ↔ NavItem Permissions
 Route::get('/level-permissions', [LevelPermissionController::class, 'index']);  // ?level_id=1
