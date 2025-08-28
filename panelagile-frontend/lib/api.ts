@@ -1,5 +1,7 @@
 // lib/api.ts
 export const API_URL = "http://localhost:8000/api";
+export const WAREHOUSE_API = "http://localhost:9000/api";
+const WAREHOUSE_KEY = "dev-panel-key-abc";
 
 import { getToken, setToken, clearToken } from "./auth";
 
@@ -248,5 +250,110 @@ export async function fetchNavItemsTree() {
   });
   if (!res.ok) return parseError(res);
   const json = await res.json();
-  return json.data ?? [];        // <— kembalikan langsung array
+  return json.data ?? []; // <— kembalikan langsung array
+}
+
+/* ======================================================================
+   WAREHOUSE CLIENT (Agile Warehouse Gateway)
+   ====================================================================== */
+
+/* ======================================================================
+   PANEL CATALOG (tabel mst_products) — dipakai ProductManagement
+   ====================================================================== */
+
+/**
+ * List produk dari Panel (DB mst_products)
+ * - endpoint: GET /api/catalog/products
+ * - bisa mengembalikan paginator {data, meta, links}
+ */
+export async function listPanelCatalogProducts(q?: string, perPage = 50) {
+  const url = new URL(`${API_URL}/catalog/products`);
+  if (q) url.searchParams.set("q", q);
+  if (perPage) url.searchParams.set("per_page", String(perPage));
+
+  const res = await fetch(url.toString(), {
+    headers: authHeaders({ Accept: "application/json" }),
+    cache: "no-store",
+  });
+  if (!res.ok) return parseError(res);
+  return res.json(); // biasanya {data:[...], meta, links}
+}
+
+export async function getPanelCatalogProduct(codeOrId: string | number) {
+  const res = await fetch(`${API_URL}/catalog/products/${codeOrId}`, {
+    headers: authHeaders({ Accept: "application/json" }),
+    cache: "no-store",
+  });
+  if (!res.ok) return parseError(res);
+  return res.json(); // {data:{...}}
+}
+
+/**
+ * Trigger sinkronisasi produk dari Warehouse → Panel DB
+ * - endpoint: POST /api/catalog/products/sync
+ */
+export async function syncPanelProducts() {
+  const res = await fetch(`${API_URL}/catalog/products/sync`, {
+    method: "POST",
+    headers: authHeaders({ Accept: "application/json" }),
+  });
+  if (!res.ok) return parseError(res);
+  return res.json();
+}
+
+/**
+ * Sinkron satu produk by code/id
+ * - endpoint: POST /api/catalog/products/{code}/sync
+ */
+export async function syncOnePanelProduct(codeOrId: string) {
+  const res = await fetch(`${API_URL}/catalog/products/${codeOrId}/sync`, {
+    method: "POST",
+    headers: authHeaders({ Accept: "application/json" }),
+  });
+  if (!res.ok) return parseError(res);
+  return res.json();
+}
+
+/**
+ * CRUD langsung ke /api/products (controller CRUD Panel)
+ * - createProductPanel / updateProductPanel dipakai oleh modal Add/Edit
+ */
+export async function createProductPanel(payload: {
+  product_code: string;
+  product_name: string;
+  category?: string | null;
+  status?: string | null;
+  description?: string | null;
+}) {
+  const res = await fetch(`${API_URL}/products`, {
+    method: "POST",
+    headers: authHeaders({
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    }),
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) return parseError(res);
+  return res.json(); // {data:{...}}
+}
+
+export async function updateProductPanel(
+  id: number | string,
+  payload: {
+    product_name: string;
+    category?: string | null;
+    status?: string | null;
+    description?: string | null;
+  }
+) {
+  const res = await fetch(`${API_URL}/products/${id}`, {
+    method: "PUT",
+    headers: authHeaders({
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    }),
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) return parseError(res);
+  return res.json();
 }

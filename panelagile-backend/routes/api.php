@@ -7,8 +7,9 @@ use App\Http\Controllers\NavItemController;
 use App\Http\Controllers\LevelPermissionController;
 use App\Http\Controllers\LevelUserController;
 use App\Http\Controllers\UserManagementController;
-
-use App\Http\Middleware\PermissionMiddleware; // ← pakai FQCN middleware
+use App\Http\Controllers\ProductController;
+use App\Http\Middleware\PermissionMiddleware;
+use App\Http\Controllers\Catalog\ProductSyncController; 
 
 /*
 |--------------------------------------------------------------------------
@@ -102,7 +103,23 @@ Route::middleware(['jwt.auth'])->group(function () {
     Route::delete('/user_managements/{id}', [UserManagementController::class, 'destroy'])
         ->middleware(PermissionMiddleware::class . ':delete,data-user');
 });
+Route::middleware(['jwt.auth'])->group(function () {
+    Route::get('/products', [ProductController::class, 'index']);
+    Route::get('/products/{id}', [ProductController::class, 'show']);
+    Route::post('/products', [ProductController::class, 'store']);
+    Route::put('/products/{id}', [ProductController::class, 'update']);
+    Route::delete('/products/{id}', [ProductController::class, 'destroy']);
 
+    // sync dari warehouse
+    Route::get('/products-sync', [ProductController::class, 'sync']);
+});
+Route::middleware(['jwt.auth'])->group(function () {
+    Route::get('/products', [ProductSyncController::class, 'index']);
+    Route::get('/products-sync', [ProductSyncController::class, 'sync']);
+});
+Route::get('/catalog/products', [ProductSyncController::class, 'index']);
+Route::get('/catalog/products/{codeOrId}', [ProductSyncController::class, 'show']);
+Route::post('/catalog/products/sync', [ProductSyncController::class, 'sync']);
 /*
 |--------------------------------------------------------------------------
 | DIAGNOSTIC (opsional)

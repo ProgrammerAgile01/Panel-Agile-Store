@@ -34,5 +34,9 @@ return [
             'channel' => env('SLACK_BOT_USER_DEFAULT_CHANNEL'),
         ],
     ],
+     'warehouse' => [
+        'base'       => env('WAREHOUSE_BASE', 'http://127.0.0.1:9000/api'),
+        'client_key' => env('WAREHOUSE_CLIENT_KEY', ''),
+    ],
 
 ];

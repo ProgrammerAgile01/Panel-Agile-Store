@@ -1,15 +1,37 @@
-"use client"
+"use client";
 
-import { useState } from "react"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
-import { PackageIcon, Plus, Search, Edit, Eye, Star, DollarSign, Users, Upload } from "lucide-react"
+import { useEffect, useState } from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import {
+  PackageIcon,
+  Plus,
+  Search,
+  Edit,
+  Eye,
+  Star,
+  DollarSign,
+  Users,
+  Upload,
+} from "lucide-react";
 import {
   BarChart3,
   Car,
@@ -27,114 +49,60 @@ import {
   ClipboardList,
   Banknote,
   Receipt,
-} from "lucide-react"
+} from "lucide-react";
 
+import {
+  listPanelCatalogProducts,
+  getPanelCatalogProduct,
+  syncPanelProducts,
+  createProductPanel,
+  updateProductPanel,
+} from "@/lib/api";
+
+/* ================== Types (UI-local) ================== */
 interface Product {
-  id: string
-  name: string
-  slug: string
-  description: string
-  logo: string
-  category: string
-  status: "Active" | "Draft" | "Archived"
-  totalCustomers: number
-  monthlyRevenue: number
-  rating: number
-  createdAt: string
-  updatedAt: string
+  id: string | number;
+  name: string;
+  slug: string; // mapped from product_code
+  description: string;
+  logo: string;
+  category: string;
+  status: "Active" | "Draft" | "Archived" | string;
+  totalCustomers: number; // UI metric (not from DB) → default 0
+  monthlyRevenue: number; // UI metric (not from DB) → default 0
+  rating: number; // UI metric (not from DB) → default 0
+  createdAt: string;
+  updatedAt: string;
 }
-
-interface Feature {
-  id: string
-  name: string
-  description: string
-  icon: string
-  productId: string
-}
-
-interface Module {
-  id: string
-  name: string
-  description: string
-  icon: string
-  productId: string
-  menus: Menu[]
-}
-
-interface Menu {
-  id: string
-  name: string
-  description: string
-  moduleId: string
-}
-
-interface Package {
-  id: string
-  name: string
-  description: string
-  color: string
-  features: string[]
-  durations: Duration[]
-}
-
-interface Duration {
-  id: string
-  name: string
-  months: number
-  packagePricing: { [packageId: string]: number }
-}
-
-const mockProducts: Product[] = [
-  {
-    id: "rentvix-pro",
-    name: "RentVix Pro",
-    slug: "rentvix-pro",
-    description: "Complete rental management system for vehicle rental businesses",
-    logo: "🚗",
-    category: "Business Management",
-    status: "Active",
-    totalCustomers: 1247,
-    monthlyRevenue: 89400,
-    rating: 4.8,
-    createdAt: "2024-01-15",
-    updatedAt: "2024-03-10",
-  },
-  {
-    id: "absen-pro",
-    name: "Absen Pro",
-    slug: "absen-pro",
-    description: "Advanced attendance and payroll management system",
-    logo: "👥",
-    category: "HR Management",
-    status: "Active",
-    totalCustomers: 892,
-    monthlyRevenue: 45600,
-    rating: 4.7,
-    createdAt: "2024-02-20",
-    updatedAt: "2024-03-08",
-  },
-]
 
 interface ProductFormData {
-  name: string
-  slug: string
-  description: string
-  category: string
-  status: "Active" | "Draft" | "Archived"
-  logo: string
+  name: string;
+  slug: string; // product_code
+  description: string;
+  category: string;
+  status: "Active" | "Draft" | "Archived";
+  logo: string;
 }
 
 interface ProductManagementProps {
-  onNavigateToDetails?: (productSlug: string) => void
+  onNavigateToDetails?: (productSlug: string) => void;
 }
 
-export function ProductManagement({ onNavigateToDetails }: ProductManagementProps) {
-  const [products, setProducts] = useState<Product[]>(mockProducts)
-  const [searchTerm, setSearchTerm] = useState("")
-  const [isAddModalOpen, setIsAddModalOpen] = useState(false)
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false)
-  const [editingProduct, setEditingProduct] = useState<Product | null>(null)
-  const [highlightedProduct, setHighlightedProduct] = useState<string | null>(null)
+/* ================== Component ================== */
+export function ProductManagement({
+  onNavigateToDetails,
+}: ProductManagementProps) {
+  const [products, setProducts] = useState<Product[]>([]);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [highlightedProduct, setHighlightedProduct] = useState<
+    string | number | null
+  >(null);
+  const [loading, setLoading] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+
   const [formData, setFormData] = useState<ProductFormData>({
     name: "",
     slug: "",
@@ -142,24 +110,27 @@ export function ProductManagement({ onNavigateToDetails }: ProductManagementProp
     category: "General",
     status: "Active",
     logo: "",
-  })
-  const [formErrors, setFormErrors] = useState<Partial<ProductFormData>>({})
+  });
+  const [formErrors, setFormErrors] = useState<Partial<ProductFormData>>({});
 
+  /* ========== Helpers ========== */
   const generateSlug = (name: string) => {
     return name
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
-      .replace(/(^-|-$)/g, "")
-  }
+      .replace(/(^-|-$)/g, "");
+  };
 
   const validateForm = (data: ProductFormData): Partial<ProductFormData> => {
-    const errors: Partial<ProductFormData> = {}
-    if (!data.name.trim()) errors.name = "Product name is required"
-    if (!data.slug.trim()) errors.slug = "Slug is required"
-    if (!data.description.trim()) errors.description = "Description is required"
-    if (data.description.length > 160) errors.description = "Description must be 160 characters or less"
-    return errors
-  }
+    const errors: Partial<ProductFormData> = {};
+    if (!data.name.trim()) errors.name = "Product name is required";
+    if (!data.slug.trim()) errors.slug = "Slug (product code) is required";
+    if (!data.description.trim())
+      errors.description = "Description is required";
+    if (data.description.length > 160)
+      errors.description = "Description must be 160 characters or less";
+    return errors;
+  };
 
   const resetForm = () => {
     setFormData({
@@ -169,104 +140,184 @@ export function ProductManagement({ onNavigateToDetails }: ProductManagementProp
       category: "General",
       status: "Active",
       logo: "",
-    })
-    setFormErrors({})
-  }
+    });
+    setFormErrors({});
+  };
 
-  const handleAddProduct = () => {
-    const errors = validateForm(formData)
+  const mapRowToProduct = (row: any): Product => {
+    // row berasal dari Panel /api/catalog/products (DB mst_products)
+    return {
+      id: row.id,
+      name: row.product_name ?? row.name ?? row.product_code ?? "Product",
+      slug: row.product_code ?? row.slug ?? "",
+      description: row.description ?? "",
+      logo: "", // tidak ada di DB → biarkan kosong/emoji manual jika mau
+      category: row.category ?? "General",
+      status: (row.status as any) ?? "Active",
+      totalCustomers: 0, // tidak ada di DB
+      monthlyRevenue: 0, // tidak ada di DB
+      rating: 0, // tidak ada di DB
+      createdAt: (row.created_at ?? "").toString().slice(0, 10),
+      updatedAt: (row.upstream_updated_at ?? row.updated_at ?? "")
+        .toString()
+        .slice(0, 10),
+    };
+  };
+
+  const loadProducts = async (q?: string) => {
+    setLoading(true);
+    try {
+      const json = await listPanelCatalogProducts(q, 200);
+      const arr = Array.isArray(json?.data) ? json.data : [];
+      setProducts(arr.map(mapRowToProduct));
+    } catch (e: any) {
+      console.error("Failed to load products:", e?.message || e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    // initial load
+    loadProducts();
+  }, []);
+
+  /* ========== Actions ========== */
+  const handleAddProduct = async () => {
+    const errors = validateForm(formData);
     if (Object.keys(errors).length > 0) {
-      setFormErrors(errors)
-      return
+      setFormErrors(errors);
+      return;
     }
+    try {
+      // Map ke kolom mst_products
+      await createProductPanel({
+        product_code: formData.slug,
+        product_name: formData.name,
+        category: formData.category || null,
+        status: formData.status || "Active",
+        description: formData.description || null,
+      });
 
-    const newProduct: Product = {
-      id: Date.now().toString(),
-      ...formData,
-      totalCustomers: 0,
-      monthlyRevenue: 0,
-      rating: 0,
-      createdAt: new Date().toISOString().split("T")[0],
-      updatedAt: new Date().toISOString().split("T")[0],
+      setIsAddModalOpen(false);
+      resetForm();
+      await loadProducts();
+
+      // Highlight baru 2 detik
+      const just = formData.slug;
+      setHighlightedProduct(just);
+      setTimeout(() => setHighlightedProduct(null), 2000);
+    } catch (e: any) {
+      console.error("Create product failed:", e?.message || e);
+      alert(e?.message || "Create product failed");
     }
+  };
 
-    setProducts((prev) => [newProduct, ...prev])
-    setIsAddModalOpen(false)
-    resetForm()
+  const handleEditProduct = async () => {
+    if (!editingProduct) return;
 
-    // Highlight new product for 2 seconds
-    setHighlightedProduct(newProduct.id)
-    setTimeout(() => setHighlightedProduct(null), 2000)
-  }
-
-  const handleEditProduct = () => {
-    if (!editingProduct) return
-
-    const errors = validateForm(formData)
+    const errors = validateForm(formData);
     if (Object.keys(errors).length > 0) {
-      setFormErrors(errors)
-      return
+      setFormErrors(errors);
+      return;
     }
 
-    setProducts((prev) =>
-      prev.map((p) =>
-        p.id === editingProduct.id ? { ...p, ...formData, updatedAt: new Date().toISOString().split("T")[0] } : p,
-      ),
-    )
+    try {
+      await updateProductPanel(editingProduct.id, {
+        product_name: formData.name,
+        category: formData.category || null,
+        status: formData.status || "Active",
+        description: formData.description || null,
+      });
 
-    setIsEditModalOpen(false)
-    setEditingProduct(null)
-    resetForm()
+      setIsEditModalOpen(false);
+      setEditingProduct(null);
+      resetForm();
+      await loadProducts();
 
-    // Highlight updated product for 2 seconds
-    setHighlightedProduct(editingProduct.id)
-    setTimeout(() => setHighlightedProduct(null), 2000)
-  }
+      setHighlightedProduct(editingProduct.id);
+      setTimeout(() => setHighlightedProduct(null), 2000);
+    } catch (e: any) {
+      console.error("Update product failed:", e?.message || e);
+      alert(e?.message || "Update product failed");
+    }
+  };
 
   const openEditModal = (product: Product) => {
-    setEditingProduct(product)
+    setEditingProduct(product);
     setFormData({
       name: product.name,
-      slug: product.slug,
+      slug: product.slug, // product_code
       description: product.description,
       category: product.category,
-      status: product.status,
-      logo: product.logo,
-    })
-    setIsEditModalOpen(true)
-  }
+      status: ["Active", "Draft", "Archived"].includes(product.status)
+        ? (product.status as any)
+        : "Active",
+      logo: product.logo ?? "",
+    });
+    setIsEditModalOpen(true);
+  };
 
-  const handleViewDetails = (product: Product) => {
+  const handleViewDetails = async (product: Product) => {
+    // kalau mau ambil detail dari server:
+    // const detail = await getPanelCatalogProduct(product.slug || String(product.id));
     if (onNavigateToDetails) {
-      onNavigateToDetails(product.slug)
+      onNavigateToDetails(product.slug);
     }
-  }
+  };
 
+  const handleImportSync = async () => {
+    // Sync dari Warehouse → Panel DB, lalu reload
+    setSyncing(true);
+    try {
+      await syncPanelProducts();
+      await loadProducts();
+    } catch (e: any) {
+      console.error("Sync failed:", e?.message || e);
+      alert(e?.message || "Sync failed");
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  /* ========== UI helpers (tidak diubah) ========== */
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "Active":
-        return <Badge className="bg-green-500/20 text-green-400 border-green-500/30">Active</Badge>
+        return (
+          <Badge className="bg-green-500/20 text-green-400 border-green-500/30">
+            Active
+          </Badge>
+        );
       case "Draft":
-        return <Badge className="bg-yellow-500/20 text-yellow-400 border-yellow-500/30">Draft</Badge>
+        return (
+          <Badge className="bg-yellow-500/20 text-yellow-400 border-yellow-500/30">
+            Draft
+          </Badge>
+        );
       case "Archived":
-        return <Badge className="bg-gray-500/20 text-gray-400 border-gray-500/30">Archived</Badge>
+        return (
+          <Badge className="bg-gray-500/20 text-gray-400 border-gray-500/30">
+            Archived
+          </Badge>
+        );
       default:
-        return <Badge>{status}</Badge>
+        return <Badge>{status}</Badge>;
     }
-  }
+  };
 
   const getPackageColor = (packageId: string) => {
     switch (packageId) {
       case "starter":
-        return "bg-gray-500/20 text-gray-400 border-gray-500/30"
+        return "bg-gray-500/20 text-gray-400 border-gray-500/30";
       case "medium":
-        return "bg-blue-500/20 text-blue-400 border-blue-500/30"
+        return "bg-blue-500/20 text-blue-400 border-blue-500/30";
       case "professional":
-        return "bg-purple-500/20 text-purple-400 border-purple-500/30"
+        return "bg-purple-500/20 text-purple-400 border-purple-500/30";
       default:
-        return "bg-gray-500/20 text-gray-400 border-gray-500/30"
+        return "bg-gray-500/20 text-gray-400 border-gray-500/30";
     }
-  }
+  };
 
   const getIconComponent = (iconName: string) => {
     const icons: { [key: string]: any } = {
@@ -286,18 +337,19 @@ export function ProductManagement({ onNavigateToDetails }: ProductManagementProp
       Banknote,
       Car,
       Receipt,
-    }
-    const IconComponent = icons[iconName] || PackageIcon
-    return <IconComponent className="h-4 w-4" />
-  }
+    };
+    const IconComponent = icons[iconName] || PackageIcon;
+    return <IconComponent className="h-4 w-4" />;
+  };
 
   const filteredProducts = products.filter(
     (product) =>
       product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       product.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      product.category.toLowerCase().includes(searchTerm.toLowerCase()),
-  )
+      product.category.toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
+  /* ================== RENDER ================== */
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -309,10 +361,16 @@ export function ProductManagement({ onNavigateToDetails }: ProductManagementProp
           <p className="text-muted-foreground">Manage your product catalog</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleImportSync}
+            disabled={syncing}
+          >
             <Upload className="h-4 w-4 mr-2" />
-            Import
+            {syncing ? "Importing..." : "Import"}
           </Button>
+
           <Dialog open={isAddModalOpen} onOpenChange={setIsAddModalOpen}>
             <DialogTrigger asChild>
               <Button className="bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 glow-primary">
@@ -337,89 +395,141 @@ export function ProductManagement({ onNavigateToDetails }: ProductManagementProp
 
               <div className="px-6 pb-6 space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="name" className="text-sm font-medium text-[#374151] dark:text-gray-300">
+                  <Label
+                    htmlFor="name"
+                    className="text-sm font-medium text-[#374151] dark:text-gray-300"
+                  >
                     Product Name *
                   </Label>
                   <Input
                     id="name"
                     value={formData.name}
                     onChange={(e) => {
-                      const name = e.target.value
+                      const name = e.target.value;
                       setFormData((prev) => ({
                         ...prev,
                         name,
                         slug: generateSlug(name),
-                      }))
-                      if (formErrors.name) setFormErrors((prev) => ({ ...prev, name: undefined }))
+                      }));
+                      if (formErrors.name)
+                        setFormErrors((prev) => ({ ...prev, name: undefined }));
                     }}
                     className={`border border-[#E5E7EB] dark:border-gray-600 rounded-lg px-3 py-2 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#7C3AED] focus:border-[#7C3AED] transition-all duration-200 ${
-                      formErrors.name ? "border-red-500 focus:border-red-500 focus:ring-red-500" : ""
+                      formErrors.name
+                        ? "border-red-500 focus:border-red-500 focus:ring-red-500"
+                        : ""
                     }`}
                     placeholder="Enter product name"
                   />
-                  {formErrors.name && <p className="text-red-500 text-xs mt-1">{formErrors.name}</p>}
+                  {formErrors.name && (
+                    <p className="text-red-500 text-xs mt-1">
+                      {formErrors.name}
+                    </p>
+                  )}
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="slug" className="text-sm font-medium text-[#374151] dark:text-gray-300">
+                  <Label
+                    htmlFor="slug"
+                    className="text-sm font-medium text-[#374151] dark:text-gray-300"
+                  >
                     Slug/Code *
                   </Label>
                   <Input
                     id="slug"
                     value={formData.slug}
                     onChange={(e) => {
-                      setFormData((prev) => ({ ...prev, slug: e.target.value }))
-                      if (formErrors.slug) setFormErrors((prev) => ({ ...prev, slug: undefined }))
+                      setFormData((prev) => ({
+                        ...prev,
+                        slug: e.target.value,
+                      }));
+                      if (formErrors.slug)
+                        setFormErrors((prev) => ({ ...prev, slug: undefined }));
                     }}
                     className={`border border-[#E5E7EB] dark:border-gray-600 rounded-lg px-3 py-2 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#7C3AED] focus:border-[#7C3AED] transition-all duration-200 ${
-                      formErrors.slug ? "border-red-500 focus:border-red-500 focus:ring-red-500" : ""
+                      formErrors.slug
+                        ? "border-red-500 focus:border-red-500 focus:ring-red-500"
+                        : ""
                     }`}
-                    placeholder="product-slug"
+                    placeholder="product-code"
                   />
-                  {formErrors.slug && <p className="text-red-500 text-xs mt-1">{formErrors.slug}</p>}
+                  {formErrors.slug && (
+                    <p className="text-red-500 text-xs mt-1">
+                      {formErrors.slug}
+                    </p>
+                  )}
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="description" className="text-sm font-medium text-[#374151] dark:text-gray-300">
+                  <Label
+                    htmlFor="description"
+                    className="text-sm font-medium text-[#374151] dark:text-gray-300"
+                  >
                     Short Description (max 160 chars)
                   </Label>
                   <Textarea
                     id="description"
                     value={formData.description}
                     onChange={(e) => {
-                      setFormData((prev) => ({ ...prev, description: e.target.value }))
-                      if (formErrors.description) setFormErrors((prev) => ({ ...prev, description: undefined }))
+                      setFormData((prev) => ({
+                        ...prev,
+                        description: e.target.value,
+                      }));
+                      if (formErrors.description)
+                        setFormErrors((prev) => ({
+                          ...prev,
+                          description: undefined,
+                        }));
                     }}
                     className={`border border-[#E5E7EB] dark:border-gray-600 rounded-lg px-3 py-2 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#7C3AED] focus:border-[#7C3AED] transition-all duration-200 resize-none ${
-                      formErrors.description ? "border-red-500 focus:border-red-500 focus:ring-red-500" : ""
+                      formData.description.length > 160
+                        ? "border-red-500 focus:border-red-500 focus:ring-red-500"
+                        : ""
                     }`}
                     maxLength={160}
                     rows={3}
                     placeholder="Brief description of your product"
                   />
                   <div className="flex justify-between items-center text-xs">
-                    {formErrors.description && <p className="text-red-500">{formErrors.description}</p>}
-                    <p className={`ml-auto ${formData.description.length > 160 ? "text-red-500" : "text-gray-500"}`}>
+                    {formErrors.description && (
+                      <p className="text-red-500">{formErrors.description}</p>
+                    )}
+                    <p
+                      className={`ml-auto ${
+                        formData.description.length > 160
+                          ? "text-red-500"
+                          : "text-gray-500"
+                      }`}
+                    >
                       {formData.description.length}/160
                     </p>
                   </div>
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="category" className="text-sm font-medium text-[#374151] dark:text-gray-300">
+                  <Label
+                    htmlFor="category"
+                    className="text-sm font-medium text-[#374151] dark:text-gray-300"
+                  >
                     Category
                   </Label>
                   <Select
                     value={formData.category}
-                    onValueChange={(value) => setFormData((prev) => ({ ...prev, category: value }))}
+                    onValueChange={(value) =>
+                      setFormData((prev) => ({ ...prev, category: value }))
+                    }
                   >
                     <SelectTrigger className="border border-[#E5E7EB] dark:border-gray-600 rounded-lg px-3 py-2 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-[#7C3AED] focus:border-[#7C3AED] transition-all duration-200">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent className="bg-white dark:bg-slate-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl">
                       <SelectItem value="General">General</SelectItem>
-                      <SelectItem value="Business Management">Business Management</SelectItem>
-                      <SelectItem value="HR Management">HR Management</SelectItem>
+                      <SelectItem value="Business Management">
+                        Business Management
+                      </SelectItem>
+                      <SelectItem value="HR Management">
+                        HR Management
+                      </SelectItem>
                       <SelectItem value="Finance">Finance</SelectItem>
                       <SelectItem value="Marketing">Marketing</SelectItem>
                     </SelectContent>
@@ -427,7 +537,10 @@ export function ProductManagement({ onNavigateToDetails }: ProductManagementProp
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="status" className="text-sm font-medium text-[#374151] dark:text-gray-300">
+                  <Label
+                    htmlFor="status"
+                    className="text-sm font-medium text-[#374151] dark:text-gray-300"
+                  >
                     Status
                   </Label>
                   <Select
@@ -457,8 +570,8 @@ export function ProductManagement({ onNavigateToDetails }: ProductManagementProp
                   <Button
                     variant="ghost"
                     onClick={() => {
-                      setIsAddModalOpen(false)
-                      resetForm()
+                      setIsAddModalOpen(false);
+                      resetForm();
                     }}
                     className="h-11 px-6 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 transition-all duration-200"
                   >
@@ -482,7 +595,9 @@ export function ProductManagement({ onNavigateToDetails }: ProductManagementProp
               <div>
                 <p className="text-sm text-muted-foreground">Total Products</p>
                 <p className="font-semibold">{products.length}</p>
-                <p className="text-xs text-green-400">All active</p>
+                <p className="text-xs text-green-400">
+                  {loading ? "Loading..." : "All active"}
+                </p>
               </div>
             </div>
           </CardContent>
@@ -497,7 +612,9 @@ export function ProductManagement({ onNavigateToDetails }: ProductManagementProp
               <div>
                 <p className="text-sm text-muted-foreground">Total Customers</p>
                 <p className="font-semibold">
-                  {products.reduce((sum, p) => sum + p.totalCustomers, 0).toLocaleString()}
+                  {products
+                    .reduce((sum, p) => sum + p.totalCustomers, 0)
+                    .toLocaleString()}
                 </p>
                 <p className="text-xs text-green-400">+12% growth</p>
               </div>
@@ -514,7 +631,10 @@ export function ProductManagement({ onNavigateToDetails }: ProductManagementProp
               <div>
                 <p className="text-sm text-muted-foreground">Monthly Revenue</p>
                 <p className="font-semibold">
-                  ${products.reduce((sum, p) => sum + p.monthlyRevenue, 0).toLocaleString()}
+                  $
+                  {products
+                    .reduce((sum, p) => sum + p.monthlyRevenue, 0)
+                    .toLocaleString()}
                 </p>
                 <p className="text-xs text-green-400">+18% vs last month</p>
               </div>
@@ -532,7 +652,10 @@ export function ProductManagement({ onNavigateToDetails }: ProductManagementProp
                 <p className="text-sm text-muted-foreground">Avg Rating</p>
                 <p className="font-semibold">
                   {products.length > 0
-                    ? (products.reduce((sum, p) => sum + p.rating, 0) / products.length).toFixed(1)
+                    ? (
+                        products.reduce((sum, p) => sum + p.rating, 0) /
+                        products.length
+                      ).toFixed(1)
                     : "0.0"}
                 </p>
                 <p className="text-xs text-green-400">Excellent</p>
@@ -560,8 +683,12 @@ export function ProductManagement({ onNavigateToDetails }: ProductManagementProp
         <Card className="glass-morphism bg-gradient-to-br from-purple-500/5 to-indigo-500/5 border-purple-500/20">
           <CardContent className="p-12 text-center">
             <div className="text-6xl mb-4">📦</div>
-            <h3 className="text-xl font-semibold mb-2">No products yet</h3>
-            <p className="text-muted-foreground mb-6">Get started by adding your first product</p>
+            <h3 className="text-xl font-semibold mb-2">
+              {loading ? "Loading..." : "No products yet"}
+            </h3>
+            <p className="text-muted-foreground mb-6">
+              Get started by adding your first product
+            </p>
             <Dialog open={isAddModalOpen} onOpenChange={setIsAddModalOpen}>
               <DialogTrigger asChild>
                 <Button className="bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700">
@@ -578,7 +705,10 @@ export function ProductManagement({ onNavigateToDetails }: ProductManagementProp
             <Card
               key={product.id}
               className={`glass-morphism bg-gradient-to-br from-purple-500/5 to-indigo-500/5 border-purple-500/20 hover:border-purple-500/30 transition-all duration-300 ${
-                highlightedProduct === product.id ? "ring-2 ring-purple-500/50 glow-accent" : ""
+                highlightedProduct === product.id ||
+                highlightedProduct === product.slug
+                  ? "ring-2 ring-purple-500/50 glow-accent"
+                  : ""
               }`}
             >
               <CardHeader>
@@ -587,7 +717,9 @@ export function ProductManagement({ onNavigateToDetails }: ProductManagementProp
                     <div className="text-3xl">{product.logo || "📦"}</div>
                     <div>
                       <CardTitle className="text-xl">{product.name}</CardTitle>
-                      <p className="text-sm text-muted-foreground">{product.description}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {product.description}
+                      </p>
                     </div>
                   </div>
                   {getStatusBadge(product.status)}
@@ -597,11 +729,15 @@ export function ProductManagement({ onNavigateToDetails }: ProductManagementProp
                 <div className="grid grid-cols-3 gap-4 text-sm">
                   <div>
                     <p className="text-muted-foreground">Customers</p>
-                    <p className="font-semibold text-blue-400">{product.totalCustomers.toLocaleString()}</p>
+                    <p className="font-semibold text-blue-400">
+                      {product.totalCustomers.toLocaleString()}
+                    </p>
                   </div>
                   <div>
                     <p className="text-muted-foreground">Revenue</p>
-                    <p className="font-semibold text-green-400">${product.monthlyRevenue.toLocaleString()}</p>
+                    <p className="font-semibold text-green-400">
+                      ${product.monthlyRevenue.toLocaleString()}
+                    </p>
                   </div>
                   <div>
                     <p className="text-muted-foreground">Rating</p>
@@ -654,95 +790,144 @@ export function ProductManagement({ onNavigateToDetails }: ProductManagementProp
                 <DialogTitle className="text-lg font-bold text-[#5B21B6] dark:text-purple-400">
                   ✏️ Edit Product
                 </DialogTitle>
-                <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Update your product details</p>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                  Update your product details
+                </p>
               </div>
             </div>
           </DialogHeader>
 
           <div className="px-6 pb-6 space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="edit-name" className="text-sm font-medium text-[#374151] dark:text-gray-300">
+              <Label
+                htmlFor="edit-name"
+                className="text-sm font-medium text-[#374151] dark:text-gray-300"
+              >
                 Product Name *
               </Label>
               <Input
                 id="edit-name"
                 value={formData.name}
                 onChange={(e) => {
-                  const name = e.target.value
+                  const name = e.target.value;
                   setFormData((prev) => ({
                     ...prev,
                     name,
-                    slug: generateSlug(name),
-                  }))
-                  if (formErrors.name) setFormErrors((prev) => ({ ...prev, name: undefined }))
+                    slug: prev.slug || generateSlug(name),
+                  }));
+                  if (formErrors.name)
+                    setFormErrors((prev) => ({ ...prev, name: undefined }));
                 }}
                 className={`border border-[#E5E7EB] dark:border-gray-600 rounded-lg px-3 py-2 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#7C3AED] focus:border-[#7C3AED] transition-all duration-200 ${
-                  formErrors.name ? "border-red-500 focus:border-red-500 focus:ring-red-500" : ""
+                  formErrors.name
+                    ? "border-red-500 focus:border-red-500 focus:ring-red-500"
+                    : ""
                 }`}
                 placeholder="Enter product name"
               />
-              {formErrors.name && <p className="text-red-500 text-xs mt-1">{formErrors.name}</p>}
+              {formErrors.name && (
+                <p className="text-red-500 text-xs mt-1">{formErrors.name}</p>
+              )}
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="edit-slug" className="text-sm font-medium text-[#374151] dark:text-gray-300">
+              <Label
+                htmlFor="edit-slug"
+                className="text-sm font-medium text-[#374151] dark:text-gray-300"
+              >
                 Slug/Code *
               </Label>
               <Input
                 id="edit-slug"
                 value={formData.slug}
                 onChange={(e) => {
-                  setFormData((prev) => ({ ...prev, slug: e.target.value }))
-                  if (formErrors.slug) setFormErrors((prev) => ({ ...prev, slug: undefined }))
+                  setFormData((prev) => ({ ...prev, slug: e.target.value }));
+                  if (formErrors.slug)
+                    setFormErrors((prev) => ({ ...prev, slug: undefined }));
                 }}
                 className={`border border-[#E5E7EB] dark:border-gray-600 rounded-lg px-3 py-2 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#7C3AED] focus:border-[#7C3AED] transition-all duration-200 ${
-                  formErrors.slug ? "border-red-500 focus:border-red-500 focus:ring-red-500" : ""
+                  formErrors.slug
+                    ? "border-red-500 focus:border-red-500 focus:ring-red-500"
+                    : ""
                 }`}
-                placeholder="product-slug"
+                placeholder="product-code"
+                disabled
               />
-              {formErrors.slug && <p className="text-red-500 text-xs mt-1">{formErrors.slug}</p>}
+              {formErrors.slug && (
+                <p className="text-red-500 text-xs mt-1">{formErrors.slug}</p>
+              )}
+              <p className="text-xs text-muted-foreground">
+                Product code tidak bisa diubah.
+              </p>
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="edit-description" className="text-sm font-medium text-[#374151] dark:text-gray-300">
+              <Label
+                htmlFor="edit-description"
+                className="text-sm font-medium text-[#374151] dark:text-gray-300"
+              >
                 Short Description (max 160 chars)
               </Label>
               <Textarea
                 id="edit-description"
                 value={formData.description}
                 onChange={(e) => {
-                  setFormData((prev) => ({ ...prev, description: e.target.value }))
-                  if (formErrors.description) setFormErrors((prev) => ({ ...prev, description: undefined }))
+                  setFormData((prev) => ({
+                    ...prev,
+                    description: e.target.value,
+                  }));
+                  if (formErrors.description)
+                    setFormErrors((prev) => ({
+                      ...prev,
+                      description: undefined,
+                    }));
                 }}
                 className={`border border-[#E5E7EB] dark:border-gray-600 rounded-lg px-3 py-2 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#7C3AED] focus:border-[#7C3AED] transition-all duration-200 resize-none ${
-                  formErrors.description ? "border-red-500 focus:border-red-500 focus:ring-red-500" : ""
+                  formErrors.description
+                    ? "border-red-500 focus:border-red-500 focus:ring-red-500"
+                    : ""
                 }`}
                 maxLength={160}
                 rows={3}
                 placeholder="Brief description of your product"
               />
               <div className="flex justify-between items-center text-xs">
-                {formErrors.description && <p className="text-red-500">{formErrors.description}</p>}
-                <p className={`ml-auto ${formData.description.length > 160 ? "text-red-500" : "text-gray-500"}`}>
+                {formErrors.description && (
+                  <p className="text-red-500">{formErrors.description}</p>
+                )}
+                <p
+                  className={`ml-auto ${
+                    formData.description.length > 160
+                      ? "text-red-500"
+                      : "text-gray-500"
+                  }`}
+                >
                   {formData.description.length}/160
                 </p>
               </div>
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="edit-category" className="text-sm font-medium text-[#374151] dark:text-gray-300">
+              <Label
+                htmlFor="edit-category"
+                className="text-sm font-medium text-[#374151] dark:text-gray-300"
+              >
                 Category
               </Label>
               <Select
                 value={formData.category}
-                onValueChange={(value) => setFormData((prev) => ({ ...prev, category: value }))}
+                onValueChange={(value) =>
+                  setFormData((prev) => ({ ...prev, category: value }))
+                }
               >
                 <SelectTrigger className="border border-[#E5E7EB] dark:border-gray-600 rounded-lg px-3 py-2 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-[#7C3AED] focus:border-[#7C3AED] transition-all duration-200">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent className="bg-white dark:bg-slate-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl">
                   <SelectItem value="General">General</SelectItem>
-                  <SelectItem value="Business Management">Business Management</SelectItem>
+                  <SelectItem value="Business Management">
+                    Business Management
+                  </SelectItem>
                   <SelectItem value="HR Management">HR Management</SelectItem>
                   <SelectItem value="Finance">Finance</SelectItem>
                   <SelectItem value="Marketing">Marketing</SelectItem>
@@ -751,7 +936,10 @@ export function ProductManagement({ onNavigateToDetails }: ProductManagementProp
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="edit-status" className="text-sm font-medium text-[#374151] dark:text-gray-300">
+              <Label
+                htmlFor="edit-status"
+                className="text-sm font-medium text-[#374151] dark:text-gray-300"
+              >
                 Status
               </Label>
               <Select
@@ -781,9 +969,9 @@ export function ProductManagement({ onNavigateToDetails }: ProductManagementProp
               <Button
                 variant="ghost"
                 onClick={() => {
-                  setIsEditModalOpen(false)
-                  setEditingProduct(null)
-                  resetForm()
+                  setIsEditModalOpen(false);
+                  setEditingProduct(null);
+                  resetForm();
                 }}
                 className="h-11 px-6 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 transition-all duration-200"
               >
@@ -794,5 +982,5 @@ export function ProductManagement({ onNavigateToDetails }: ProductManagementProp
         </DialogContent>
       </Dialog>
     </div>
-  )
+  );
 }
