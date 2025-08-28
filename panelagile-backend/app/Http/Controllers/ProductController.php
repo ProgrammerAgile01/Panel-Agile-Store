@@ -11,10 +11,21 @@ class ProductController extends Controller
     /**
      * GET /api/products
      */
-    public function index()
+    public function index(Request $request)
     {
+        // (opsional) dukung q
+        $q = $request->query('q');
+        $query = Product::query()->orderBy('created_at', 'desc');
+        if ($q) {
+            $query->where(function ($w) use ($q) {
+                $w->where('product_name', 'like', "%{$q}%")
+                  ->orWhere('product_code', 'like', "%{$q}%")
+                  ->orWhere('category', 'like', "%{$q}%");
+            });
+        }
+
         return response()->json([
-            'data' => Product::orderBy('created_at', 'desc')->get()
+            'data' => $query->get(),
         ]);
     }
 
@@ -38,6 +49,7 @@ class ProductController extends Controller
             'category'     => 'nullable|string|max:80',
             'status'       => 'nullable|string|max:32',
             'description'  => 'nullable|string',
+            'db_name'      => ['required','string','max:60','regex:/^[A-Za-z0-9_]+$/'], // <— NEW
         ]);
 
         $product = Product::create($data);
@@ -57,6 +69,7 @@ class ProductController extends Controller
             'category'     => 'nullable|string|max:80',
             'status'       => 'nullable|string|max:32',
             'description'  => 'nullable|string',
+            'db_name'      => ['required','string','max:60','regex:/^[A-Za-z0-9_]+$/'], // <— NEW (boleh diubah)
         ]);
 
         $product->update($data);
@@ -78,12 +91,12 @@ class ProductController extends Controller
     /**
      * GET /api/products/sync
      * Sync produk dari Warehouse → simpan/update ke mst_products
+     * (db_name TIDAK ditimpa bila tidak dikirim dari Warehouse)
      */
     public function sync()
     {
-        // panggil warehouse API
-        $warehouseUrl = config('services.warehouse.base') . '/catalog/products';
-        $clientKey    = config('services.warehouse.key');
+        $warehouseUrl = rtrim((string) config('services.warehouse.base'), '/').'/catalog/products';
+        $clientKey    = (string) config('services.warehouse.key');
 
         $response = Http::withHeaders([
             'X-CLIENT-KEY' => $clientKey,
@@ -97,22 +110,40 @@ class ProductController extends Controller
             ], 500);
         }
 
-        $items = $response->json();
+        // Response gateway biasanya { data: [...] }
+        $payload = $response->json();
+        $items = is_array($payload) ? $payload : ($payload['data'] ?? []);
+        if (!is_array($items)) $items = [];
+
         $synced = [];
 
         foreach ($items as $row) {
-            $product = Product::updateOrCreate(
-                ['product_code' => $row['product_code']],
-                [
-                    'product_name'       => $row['product_name'] ?? '',
-                    'category'           => $row['category'] ?? null,
-                    'status'             => $row['status'] ?? 'Active',
-                    'description'        => $row['description'] ?? null,
-                    'total_features'     => $row['total_features'] ?? 0,
-                    'upstream_updated_at'=> $row['updated_at'] ?? null,
-                ]
-            );
-            $synced[] = $product;
+            $code = $row['product_code'] ?? null;
+            if (!$code) continue;
+
+            // Cari dulu agar db_name lama tidak hilang jika upstream tidak kirim
+            $existing = Product::where('product_code', $code)->first();
+
+            $data = [
+                'product_name'        => $row['product_name'] ?? ($existing->product_name ?? $code),
+                'category'            => $row['category'] ?? ($existing->category ?? null),
+                'status'              => $row['status'] ?? ($existing->status ?? 'Active'),
+                'description'         => $row['description'] ?? ($existing->description ?? null),
+                'total_features'      => $row['total_features'] ?? ($existing->total_features ?? 0),
+                'upstream_updated_at' => $row['updated_at'] ?? ($existing->upstream_updated_at ?? null),
+                // db_name: pakai dari upstream kalau ada, else pertahankan eksisting
+                'db_name'             => $row['db_name'] ?? ($existing->db_name ?? ''), // <— keep existing
+            ];
+
+            if ($existing) {
+                $existing->update($data);
+                $synced[] = $existing->fresh();
+            } else {
+                $created = Product::create(array_merge($data, [
+                    'product_code' => $code,
+                ]));
+                $synced[] = $created;
+            }
         }
 
         return response()->json([

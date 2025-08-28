@@ -68,6 +68,7 @@ interface Product {
   logo: string;
   category: string;
   status: "Active" | "Draft" | "Archived" | string;
+  dbName: string; // <— NEW
   totalCustomers: number; // UI metric (not from DB) → default 0
   monthlyRevenue: number; // UI metric (not from DB) → default 0
   rating: number; // UI metric (not from DB) → default 0
@@ -82,6 +83,7 @@ interface ProductFormData {
   category: string;
   status: "Active" | "Draft" | "Archived";
   logo: string;
+  dbName: string; // <— NEW
 }
 
 interface ProductManagementProps {
@@ -110,6 +112,7 @@ export function ProductManagement({
     category: "General",
     status: "Active",
     logo: "",
+    dbName: "", // <— NEW
   });
   const [formErrors, setFormErrors] = useState<Partial<ProductFormData>>({});
 
@@ -129,6 +132,18 @@ export function ProductManagement({
       errors.description = "Description is required";
     if (data.description.length > 160)
       errors.description = "Description must be 160 characters or less";
+
+    // db_name validations
+    if (!data.dbName.trim()) {
+      errors.dbName = "DB name is required";
+    } else {
+      if (data.dbName.length > 60) {
+        errors.dbName = "DB name must be 60 characters or less";
+      } else if (!/^[A-Za-z0-9_]+$/.test(data.dbName)) {
+        errors.dbName =
+          "DB name may only contain letters, numbers, and underscore (_)";
+      }
+    }
     return errors;
   };
 
@@ -140,12 +155,13 @@ export function ProductManagement({
       category: "General",
       status: "Active",
       logo: "",
+      dbName: "",
     });
     setFormErrors({});
   };
 
   const mapRowToProduct = (row: any): Product => {
-    // row berasal dari Panel /api/catalog/products (DB mst_products)
+    // row berasal dari Panel /api/products (DB mst_products)
     return {
       id: row.id,
       name: row.product_name ?? row.name ?? row.product_code ?? "Product",
@@ -154,6 +170,7 @@ export function ProductManagement({
       logo: "", // tidak ada di DB → biarkan kosong/emoji manual jika mau
       category: row.category ?? "General",
       status: (row.status as any) ?? "Active",
+      dbName: row.db_name ?? "", // <— NEW
       totalCustomers: 0, // tidak ada di DB
       monthlyRevenue: 0, // tidak ada di DB
       rating: 0, // tidak ada di DB
@@ -197,6 +214,7 @@ export function ProductManagement({
         category: formData.category || null,
         status: formData.status || "Active",
         description: formData.description || null,
+        db_name: formData.dbName, // <— NEW
       });
 
       setIsAddModalOpen(false);
@@ -228,6 +246,7 @@ export function ProductManagement({
         category: formData.category || null,
         status: formData.status || "Active",
         description: formData.description || null,
+        db_name: formData.dbName, // <— NEW (allow edit)
       });
 
       setIsEditModalOpen(false);
@@ -254,6 +273,7 @@ export function ProductManagement({
         ? (product.status as any)
         : "Active",
       logo: product.logo ?? "",
+      dbName: product.dbName ?? "", // <— NEW
     });
     setIsEditModalOpen(true);
   };
@@ -394,6 +414,7 @@ export function ProductManagement({
               </DialogHeader>
 
               <div className="px-6 pb-6 space-y-4">
+                {/* Name */}
                 <div className="space-y-2">
                   <Label
                     htmlFor="name"
@@ -428,6 +449,7 @@ export function ProductManagement({
                   )}
                 </div>
 
+                {/* Slug / product_code */}
                 <div className="space-y-2">
                   <Label
                     htmlFor="slug"
@@ -460,6 +482,46 @@ export function ProductManagement({
                   )}
                 </div>
 
+                {/* DB Name */}
+                <div className="space-y-2">
+                  <Label
+                    htmlFor="dbName"
+                    className="text-sm font-medium text-[#374151] dark:text-gray-300"
+                  >
+                    DB Name *
+                  </Label>
+                  <Input
+                    id="dbName"
+                    value={formData.dbName}
+                    onChange={(e) => {
+                      setFormData((prev) => ({
+                        ...prev,
+                        dbName: e.target.value,
+                      }));
+                      if (formErrors.dbName)
+                        setFormErrors((prev) => ({
+                          ...prev,
+                          dbName: undefined,
+                        }));
+                    }}
+                    className={`border border-[#E5E7EB] dark:border-gray-600 rounded-lg px-3 py-2 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#7C3AED] focus:border-[#7C3AED] transition-all duration-200 ${
+                      formErrors.dbName
+                        ? "border-red-500 focus:border-red-500 focus:ring-red-500"
+                        : ""
+                    }`}
+                    placeholder="my_product_db"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Only letters, numbers, and underscore. Max 60 chars.
+                  </p>
+                  {formErrors.dbName && (
+                    <p className="text-red-500 text-xs mt-1">
+                      {formErrors.dbName}
+                    </p>
+                  )}
+                </div>
+
+                {/* Description */}
                 <div className="space-y-2">
                   <Label
                     htmlFor="description"
@@ -506,6 +568,7 @@ export function ProductManagement({
                   </div>
                 </div>
 
+                {/* Category */}
                 <div className="space-y-2">
                   <Label
                     htmlFor="category"
@@ -536,6 +599,7 @@ export function ProductManagement({
                   </Select>
                 </div>
 
+                {/* Status */}
                 <div className="space-y-2">
                   <Label
                     htmlFor="status"
@@ -752,6 +816,7 @@ export function ProductManagement({
                   <p className="text-sm font-medium">Quick Info</p>
                   <div className="flex items-center justify-between text-xs text-muted-foreground">
                     <span>Category: {product.category}</span>
+                    <span>DB: {product.dbName || "—"}</span>
                     <span>Updated: {product.updatedAt}</span>
                   </div>
                 </div>
@@ -798,6 +863,7 @@ export function ProductManagement({
           </DialogHeader>
 
           <div className="px-6 pb-6 space-y-4">
+            {/* Name */}
             <div className="space-y-2">
               <Label
                 htmlFor="edit-name"
@@ -830,6 +896,7 @@ export function ProductManagement({
               )}
             </div>
 
+            {/* Slug / product_code */}
             <div className="space-y-2">
               <Label
                 htmlFor="edit-slug"
@@ -861,6 +928,38 @@ export function ProductManagement({
               </p>
             </div>
 
+            {/* DB Name */}
+            <div className="space-y-2">
+              <Label
+                htmlFor="edit-dbName"
+                className="text-sm font-medium text-[#374151] dark:text-gray-300"
+              >
+                DB Name *
+              </Label>
+              <Input
+                id="edit-dbName"
+                value={formData.dbName}
+                onChange={(e) => {
+                  setFormData((prev) => ({ ...prev, dbName: e.target.value }));
+                  if (formErrors.dbName)
+                    setFormErrors((prev) => ({ ...prev, dbName: undefined }));
+                }}
+                className={`border border-[#E5E7EB] dark:border-gray-600 rounded-lg px-3 py-2 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#7C3AED] focus:border-[#7C3AED] transition-all duration-200 ${
+                  formErrors.dbName
+                    ? "border-red-500 focus:border-red-500 focus:ring-red-500"
+                    : ""
+                }`}
+                placeholder="my_product_db"
+              />
+              <p className="text-xs text-muted-foreground">
+                Only letters, numbers, and underscore. Max 60 chars.
+              </p>
+              {formErrors.dbName && (
+                <p className="text-red-500 text-xs mt-1">{formErrors.dbName}</p>
+              )}
+            </div>
+
+            {/* Description */}
             <div className="space-y-2">
               <Label
                 htmlFor="edit-description"
@@ -907,6 +1006,7 @@ export function ProductManagement({
               </div>
             </div>
 
+            {/* Category */}
             <div className="space-y-2">
               <Label
                 htmlFor="edit-category"
@@ -935,6 +1035,7 @@ export function ProductManagement({
               </Select>
             </div>
 
+            {/* Status */}
             <div className="space-y-2">
               <Label
                 htmlFor="edit-status"

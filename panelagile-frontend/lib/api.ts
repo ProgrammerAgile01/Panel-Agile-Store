@@ -266,17 +266,26 @@ export async function fetchNavItemsTree() {
  * - endpoint: GET /api/catalog/products
  * - bisa mengembalikan paginator {data, meta, links}
  */
-export async function listPanelCatalogProducts(q?: string, perPage = 50) {
+// Panel (public gateway)
+export async function listPanelCatalogProducts(q?: string, perPage = 200) {
   const url = new URL(`${API_URL}/catalog/products`);
   if (q) url.searchParams.set("q", q);
-  if (perPage) url.searchParams.set("per_page", String(perPage));
-
+  url.searchParams.set("per_page", String(perPage));
   const res = await fetch(url.toString(), {
-    headers: authHeaders({ Accept: "application/json" }),
+    headers: { Accept: "application/json" },
     cache: "no-store",
   });
   if (!res.ok) return parseError(res);
-  return res.json(); // biasanya {data:[...], meta, links}
+  return res.json();
+}
+
+export async function syncPanelProducts() {
+  const res = await fetch(`${API_URL}/catalog/products/sync`, {
+    method: "POST",
+    headers: { Accept: "application/json" },
+  });
+  if (!res.ok) return parseError(res);
+  return res.json();
 }
 
 export async function getPanelCatalogProduct(codeOrId: string | number) {
@@ -292,14 +301,6 @@ export async function getPanelCatalogProduct(codeOrId: string | number) {
  * Trigger sinkronisasi produk dari Warehouse → Panel DB
  * - endpoint: POST /api/catalog/products/sync
  */
-export async function syncPanelProducts() {
-  const res = await fetch(`${API_URL}/catalog/products/sync`, {
-    method: "POST",
-    headers: authHeaders({ Accept: "application/json" }),
-  });
-  if (!res.ok) return parseError(res);
-  return res.json();
-}
 
 /**
  * Sinkron satu produk by code/id
@@ -318,12 +319,14 @@ export async function syncOnePanelProduct(codeOrId: string) {
  * CRUD langsung ke /api/products (controller CRUD Panel)
  * - createProductPanel / updateProductPanel dipakai oleh modal Add/Edit
  */
+// ===== fix 2: CRUD /api/products WAJIB kirim Authorization =====
 export async function createProductPanel(payload: {
   product_code: string;
   product_name: string;
   category?: string | null;
   status?: string | null;
   description?: string | null;
+  db_name: string;
 }) {
   const res = await fetch(`${API_URL}/products`, {
     method: "POST",
@@ -334,16 +337,17 @@ export async function createProductPanel(payload: {
     body: JSON.stringify(payload),
   });
   if (!res.ok) return parseError(res);
-  return res.json(); // {data:{...}}
+  return res.json();
 }
 
 export async function updateProductPanel(
-  id: number | string,
+  id: string | number,
   payload: {
     product_name: string;
     category?: string | null;
     status?: string | null;
     description?: string | null;
+    db_name: string;
   }
 ) {
   const res = await fetch(`${API_URL}/products/${id}`, {
@@ -356,4 +360,51 @@ export async function updateProductPanel(
   });
   if (!res.ok) return parseError(res);
   return res.json();
+}
+
+export async function whListFeaturesByProduct(idOrCode: string) {
+  const base = WAREHOUSE_API.replace(/\/$/, "");
+  const url = `${base}/catalog/products/${encodeURIComponent(
+    idOrCode
+  )}/features`;
+  const res = await fetch(url, {
+    headers: {
+      Accept: "application/json",
+      "X-CLIENT-KEY": WAREHOUSE_KEY, // pastikan di-set "dev-panel-key-abc"
+    },
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    let msg = `${res.status} ${res.statusText}`;
+    try {
+      const j = await res.json();
+      msg = j.message || JSON.stringify(j);
+    } catch {}
+    throw new Error(msg);
+  }
+  return res.json(); // bentuk: { data: Feature[], ... } (dari AppGenerate proxy)
+}
+
+// (opsional) GET /api/catalog/products/{idOrCode}/menus
+export async function whListMenusByProduct(idOrCode: string) {
+  const base = WAREHOUSE_API.replace(/\/$/, "");
+  const url = `${base}/catalog/products/${encodeURIComponent(idOrCode)}/menus`;
+  const res = await fetch(url, {
+    headers: {
+      Accept: "application/json",
+      "X-CLIENT-KEY": WAREHOUSE_KEY,
+    },
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    // tidak semua instalasi punya endpoint menus → biarkan diam2 kalau 404
+    if (res.status === 404) return { data: [] };
+    let msg = `${res.status} ${res.statusText}`;
+    try {
+      const j = await res.json();
+      msg = j.message || JSON.stringify(j);
+    } catch {}
+    throw new Error(msg);
+  }
+  return res.json(); // { data: Menu[] } atau bentuk serupa
 }

@@ -18,6 +18,7 @@ return new class extends Migration {
             $table->string('category', 80)->nullable();
             $table->string('status', 32)->default('Active');
             $table->text('description')->nullable();
+               $table->string('db_name', 60);
 
             // Info statistik ringan
             $table->unsignedInteger('total_features')->default(0);

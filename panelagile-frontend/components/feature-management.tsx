@@ -1,32 +1,52 @@
-"use client"
+"use client";
 
-import { useState } from "react"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
-import { Switch } from "@/components/ui/switch"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Zap, Plus, Settings, Users, TestTube, Shield, Database, Bell, Smartphone, BarChart3 } from "lucide-react"
+import { useEffect, useMemo, useState } from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Zap,
+  Plus,
+  Settings,
+  Users,
+  TestTube,
+  Shield,
+  Database,
+  Bell,
+  Smartphone,
+  BarChart3,
+} from "lucide-react";
+import { whListFeaturesByProduct, whListMenusByProduct } from "@/lib/api";
 
+/* ===================== Types ===================== */
 interface Feature {
-  id: string
-  name: string
-  description: string
-  category: string
-  status: "Active" | "Beta" | "Disabled"
-  packages: ("Basic" | "Premium" | "Business" | "Enterprise")[]
-  usage: number
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  status: "Active" | "Beta" | "Disabled";
+  packages: ("Basic" | "Premium" | "Business" | "Enterprise")[];
+  usage: number;
 }
-
 interface FeatureGroup {
-  id: string
-  name: string
-  features: string[]
-  packages: string[]
-  status: "Active" | "Draft"
+  id: string;
+  name: string;
+  features: string[];
+  packages: string[];
+  status: "Active" | "Draft";
 }
 
+/* ===================== Mock (fallback) ===================== */
 const mockFeatures: Feature[] = [
   {
     id: "1",
@@ -64,8 +84,7 @@ const mockFeatures: Feature[] = [
     packages: ["Premium", "Business", "Enterprise"],
     usage: 92,
   },
-]
-
+];
 const mockFeatureGroups: FeatureGroup[] = [
   {
     id: "1",
@@ -88,62 +107,175 @@ const mockFeatureGroups: FeatureGroup[] = [
     packages: ["Enterprise"],
     status: "Active",
   },
-]
+];
 
+/* ===================== Helpers ===================== */
+// Map 1 item feature AppGenerate -> Feature (UI)
+function mapAgFeatureToFeature(item: any): Feature {
+  const id = String(
+    item.id ?? item.feature_code ?? Math.random().toString(36).slice(2)
+  );
+  const name = String(item.name ?? item.feature_name ?? `Feature ${id}`);
+  const description = String(item.description ?? "") || "—";
+  const category = String(item.type ?? item.category ?? "General"); // AppGenerate: type = category/feature/subfeature
+  const status: Feature["status"] =
+    item.is_active === false ? "Disabled" : "Active";
+  return { id, name, description, category, status, packages: [], usage: 0 };
+}
+
+// Susun groups sederhana dari data menus (opsional)
+function buildGroupsFromMenus(menus: any[]): FeatureGroup[] {
+  if (!Array.isArray(menus) || menus.length === 0) return mockFeatureGroups;
+  const byParent: Record<string, any[]> = {};
+  for (const m of menus) {
+    const pid = m.parent_id ?? m.parentId ?? null;
+    const key = pid === null ? "root" : String(pid);
+    if (!byParent[key]) byParent[key] = [];
+    byParent[key].push(m);
+  }
+  const roots = byParent["root"] ?? [];
+  if (roots.length) {
+    return roots.map((g) => ({
+      id: String(g.id),
+      name: String(g.title ?? g.name ?? "Group"),
+      features: (byParent[String(g.id)] ?? []).map((c) =>
+        String(c.title ?? c.name ?? "Menu")
+      ),
+      packages: ["Basic", "Premium", "Business", "Enterprise"],
+      status: "Active",
+    }));
+  }
+  return [
+    {
+      id: "menus",
+      name: "Menus",
+      features: menus.map((m) => String(m.title ?? m.name ?? "Menu")),
+      packages: ["Basic", "Premium", "Business", "Enterprise"],
+      status: "Active",
+    },
+  ];
+}
+
+/* ===================== Component ===================== */
 export function FeatureManagement() {
-  const [features, setFeatures] = useState(mockFeatures)
+  // Ganti sesuai product_code dari AppGenerate
+  const PRODUCT_CODE = "rentvix-pro";
+
+  const [features, setFeatures] = useState<Feature[]>(mockFeatures);
+  const [featureGroups, setFeatureGroups] =
+    useState<FeatureGroup[]>(mockFeatureGroups);
+  const [loading, setLoading] = useState(false);
 
   const toggleFeatureStatus = (featureId: string, packageName: string) => {
     setFeatures((prev) =>
-      prev.map((feature) => {
-        if (feature.id === featureId) {
-          const packages = feature.packages.includes(packageName as any)
-            ? feature.packages.filter((pkg) => pkg !== packageName)
-            : [...feature.packages, packageName as any]
-          return { ...feature, packages }
-        }
-        return feature
-      }),
-    )
-  }
+      prev.map((f) =>
+        f.id === featureId
+          ? {
+              ...f,
+              packages: f.packages.includes(packageName as any)
+                ? f.packages.filter((p) => p !== packageName)
+                : [...f.packages, packageName as any],
+            }
+          : f
+      )
+    );
+  };
 
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "Active":
-        return <Badge className="bg-green-500/20 text-green-500">Active</Badge>
+        return <Badge className="bg-green-500/20 text-green-500">Active</Badge>;
       case "Beta":
-        return <Badge className="bg-blue-500/20 text-blue-500">Beta</Badge>
+        return <Badge className="bg-blue-500/20 text-blue-500">Beta</Badge>;
       case "Disabled":
-        return <Badge className="bg-gray-500/20 text-gray-500">Disabled</Badge>
+        return <Badge className="bg-gray-500/20 text-gray-500">Disabled</Badge>;
       default:
-        return <Badge>{status}</Badge>
+        return <Badge>{status}</Badge>;
     }
-  }
+  };
 
   const getCategoryIcon = (category: string) => {
     switch (category) {
       case "Analytics":
-        return <BarChart3 className="h-4 w-4" />
+        return <BarChart3 className="h-4 w-4" />;
       case "Integration":
-        return <Database className="h-4 w-4" />
+        return <Database className="h-4 w-4" />;
       case "Branding":
-        return <Settings className="h-4 w-4" />
+        return <Settings className="h-4 w-4" />;
       case "Mobile":
-        return <Smartphone className="h-4 w-4" />
+        return <Smartphone className="h-4 w-4" />;
       case "Security":
-        return <Shield className="h-4 w-4" />
+        return <Shield className="h-4 w-4" />;
       default:
-        return <Zap className="h-4 w-4" />
+        return <Zap className="h-4 w-4" />;
     }
-  }
+  };
 
+  // ===================== LOAD dari API =====================
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      setLoading(true);
+      try {
+        // (1) Features by product (Warehouse -> AppGenerate)
+        const fjson = await whListFeaturesByProduct(PRODUCT_CODE);
+        const frows: any[] = Array.isArray(fjson?.data)
+          ? fjson.data
+          : Array.isArray(fjson)
+          ? fjson
+          : [];
+        const mapped = frows.map(mapAgFeatureToFeature);
+        if (alive && mapped.length) setFeatures(mapped);
+
+        // (2) Menus by product (opsional)
+        try {
+          const mjson = await whListMenusByProduct(PRODUCT_CODE);
+          const mrows: any[] = Array.isArray(mjson?.data)
+            ? mjson.data
+            : Array.isArray(mjson)
+            ? mjson
+            : [];
+          if (alive && mrows.length)
+            setFeatureGroups(buildGroupsFromMenus(mrows));
+        } catch (err) {
+          // Jika endpoint /menus belum ada, abaikan
+        }
+      } catch (err: any) {
+        console.error("Failed to load features/menus:", err?.message || err);
+        // biarkan mock tetap tampil
+      } finally {
+        if (alive) setLoading(false);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []); // PRODUCT_CODE bisa dimasukkan ke dep kalau nanti selectable
+
+  const totals = useMemo(
+    () => ({
+      total: features.length,
+      beta: features.filter((f) => f.status === "Beta").length,
+      most: features[0]?.name || "—",
+      mostUsage: features[0]?.usage ?? 0,
+    }),
+    [features]
+  );
+
+  /* ===================== UI (tidak diubah) ===================== */
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold font-heading">Feature Management</h1>
-          <p className="text-muted-foreground">Control features across different packages</p>
+          <h1 className="text-3xl font-bold font-heading">
+            Feature Management
+          </h1>
+          <p className="text-muted-foreground">
+            {loading
+              ? "Loading features…"
+              : "Control features across different packages"}
+          </p>
         </div>
         <Button className="glow-primary">
           <Plus className="h-4 w-4 mr-2" />
@@ -161,12 +293,11 @@ export function FeatureManagement() {
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Total Features</p>
-                <p className="font-semibold">47</p>
+                <p className="font-semibold">{totals.total}</p>
               </div>
             </div>
           </CardContent>
         </Card>
-
         <Card className="glass-morphism glow-accent">
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
@@ -175,12 +306,11 @@ export function FeatureManagement() {
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Beta Features</p>
-                <p className="font-semibold">5</p>
+                <p className="font-semibold">{totals.beta}</p>
               </div>
             </div>
           </CardContent>
         </Card>
-
         <Card className="glass-morphism">
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
@@ -189,12 +319,13 @@ export function FeatureManagement() {
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Most Used</p>
-                <p className="font-semibold text-xs">Mobile App (92%)</p>
+                <p className="font-semibold text-xs">
+                  {totals.most} ({totals.mostUsage}%)
+                </p>
               </div>
             </div>
           </CardContent>
         </Card>
-
         <Card className="glass-morphism animate-pulse-glow">
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
@@ -202,15 +333,19 @@ export function FeatureManagement() {
                 <Bell className="h-5 w-5 text-blue-500" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Ready for Release</p>
-                <p className="font-semibold">3</p>
+                <p className="text-sm text-muted-foreground">
+                  Ready for Release
+                </p>
+                <p className="font-semibold">
+                  {features.filter((f) => f.status === "Active").length}
+                </p>
               </div>
             </div>
           </CardContent>
         </Card>
       </div>
 
-      {/* Main Content */}
+      {/* Main Tabs (UI unchanged) */}
       <Tabs defaultValue="features" className="space-y-6">
         <TabsList className="glass-morphism">
           <TabsTrigger value="features">Features</TabsTrigger>
@@ -219,6 +354,7 @@ export function FeatureManagement() {
           <TabsTrigger value="beta">Beta Testing</TabsTrigger>
         </TabsList>
 
+        {/* Features List */}
         <TabsContent value="features" className="space-y-4">
           <Card className="glass-morphism">
             <CardHeader>
@@ -231,20 +367,31 @@ export function FeatureManagement() {
                     <CardContent className="p-4">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-4">
-                          <div className="p-2 bg-primary/20 rounded-lg">{getCategoryIcon(feature.category)}</div>
+                          <div className="p-2 bg-primary/20 rounded-lg">
+                            {getCategoryIcon(feature.category)}
+                          </div>
                           <div>
                             <h3 className="font-semibold">{feature.name}</h3>
-                            <p className="text-sm text-muted-foreground">{feature.description}</p>
+                            <p className="text-sm text-muted-foreground">
+                              {feature.description}
+                            </p>
                             <div className="flex items-center gap-2 mt-2">
                               {getStatusBadge(feature.status)}
-                              <Badge variant="outline">{feature.category}</Badge>
-                              <span className="text-xs text-muted-foreground">{feature.usage}% usage</span>
+                              <Badge variant="outline">
+                                {feature.category}
+                              </Badge>
+                              <span className="text-xs text-muted-foreground">
+                                {feature.usage}% usage
+                              </span>
                             </div>
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
                           {feature.packages.map((pkg) => (
-                            <Badge key={pkg} className="bg-accent/20 text-accent">
+                            <Badge
+                              key={pkg}
+                              className="bg-accent/20 text-accent"
+                            >
                               {pkg}
                             </Badge>
                           ))}
@@ -258,6 +405,7 @@ export function FeatureManagement() {
           </Card>
         </TabsContent>
 
+        {/* Package Matrix */}
         <TabsContent value="packages" className="space-y-4">
           <Card className="glass-morphism">
             <CardHeader>
@@ -283,14 +431,18 @@ export function FeatureManagement() {
                           <span className="font-medium">{feature.name}</span>
                         </div>
                       </TableCell>
-                      {["Basic", "Premium", "Business", "Enterprise"].map((pkg) => (
-                        <TableCell key={pkg} className="text-center">
-                          <Switch
-                            checked={feature.packages.includes(pkg as any)}
-                            onCheckedChange={() => toggleFeatureStatus(feature.id, pkg)}
-                          />
-                        </TableCell>
-                      ))}
+                      {["Basic", "Premium", "Business", "Enterprise"].map(
+                        (pkg) => (
+                          <TableCell key={pkg} className="text-center">
+                            <Switch
+                              checked={feature.packages.includes(pkg as any)}
+                              onCheckedChange={() =>
+                                toggleFeatureStatus(feature.id, pkg)
+                              }
+                            />
+                          </TableCell>
+                        )
+                      )}
                     </TableRow>
                   ))}
                 </TableBody>
@@ -299,9 +451,10 @@ export function FeatureManagement() {
           </Card>
         </TabsContent>
 
+        {/* Groups & Beta tabs – tetap sama (UI lain tidak diubah) */}
         <TabsContent value="groups" className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {mockFeatureGroups.map((group) => (
+            {featureGroups.map((group) => (
               <Card key={group.id} className="glass-morphism">
                 <CardHeader>
                   <div className="flex items-center justify-between">
@@ -311,10 +464,15 @@ export function FeatureManagement() {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div>
-                    <p className="text-sm text-muted-foreground mb-2">Features ({group.features.length})</p>
+                    <p className="text-sm text-muted-foreground mb-2">
+                      Features ({group.features.length})
+                    </p>
                     <div className="space-y-1">
                       {group.features.map((feature) => (
-                        <div key={feature} className="text-sm flex items-center gap-2">
+                        <div
+                          key={feature}
+                          className="text-sm flex items-center gap-2"
+                        >
                           <Zap className="h-3 w-3 text-accent" />
                           {feature}
                         </div>
@@ -322,7 +480,9 @@ export function FeatureManagement() {
                     </div>
                   </div>
                   <div>
-                    <p className="text-sm text-muted-foreground mb-2">Available in</p>
+                    <p className="text-sm text-muted-foreground mb-2">
+                      Available in
+                    </p>
                     <div className="flex flex-wrap gap-1">
                       {group.packages.map((pkg) => (
                         <Badge key={pkg} variant="outline" className="text-xs">
@@ -350,20 +510,30 @@ export function FeatureManagement() {
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <Card className="glass-morphism">
                     <CardContent className="p-4 text-center">
-                      <div className="text-2xl font-bold text-accent">5</div>
-                      <p className="text-sm text-muted-foreground">Beta Features</p>
+                      <div className="text-2xl font-bold text-accent">
+                        {features.filter((f) => f.status === "Beta").length}
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        Beta Features
+                      </p>
                     </CardContent>
                   </Card>
                   <Card className="glass-morphism">
                     <CardContent className="p-4 text-center">
                       <div className="text-2xl font-bold text-primary">127</div>
-                      <p className="text-sm text-muted-foreground">Beta Testers</p>
+                      <p className="text-sm text-muted-foreground">
+                        Beta Testers
+                      </p>
                     </CardContent>
                   </Card>
                   <Card className="glass-morphism">
                     <CardContent className="p-4 text-center">
-                      <div className="text-2xl font-bold text-green-500">89%</div>
-                      <p className="text-sm text-muted-foreground">Satisfaction</p>
+                      <div className="text-2xl font-bold text-green-500">
+                        89%
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        Satisfaction
+                      </p>
                     </CardContent>
                   </Card>
                 </div>
@@ -372,18 +542,26 @@ export function FeatureManagement() {
                   {features
                     .filter((f) => f.status === "Beta")
                     .map((feature) => (
-                      <Card key={feature.id} className="glass-morphism border-blue-500/30">
+                      <Card
+                        key={feature.id}
+                        className="glass-morphism border-blue-500/30"
+                      >
                         <CardContent className="p-4">
                           <div className="flex items-center justify-between">
                             <div>
                               <h3 className="font-semibold">{feature.name}</h3>
-                              <p className="text-sm text-muted-foreground">{feature.description}</p>
+                              <p className="text-sm text-muted-foreground">
+                                {feature.description}
+                              </p>
                             </div>
                             <div className="flex gap-2">
                               <Button size="sm" variant="outline">
                                 View Feedback
                               </Button>
-                              <Button size="sm" className="bg-green-500 hover:bg-green-600">
+                              <Button
+                                size="sm"
+                                className="bg-green-500 hover:bg-green-600"
+                              >
                                 Release
                               </Button>
                             </div>
@@ -398,5 +576,5 @@ export function FeatureManagement() {
         </TabsContent>
       </Tabs>
     </div>
-  )
+  );
 }

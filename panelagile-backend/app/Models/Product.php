@@ -9,7 +9,6 @@ class Product extends Model
 {
     use SoftDeletes;
 
-    // Tentukan tabel eksplisit
     protected $table = 'mst_products';
 
     protected $fillable = [
@@ -18,6 +17,7 @@ class Product extends Model
         'category',
         'status',
         'description',
+        'db_name',              // <— NEW
         'total_features',
         'upstream_updated_at',
     ];
