@@ -9,6 +9,7 @@ use App\Http\Controllers\LevelUserController;
 use App\Http\Controllers\UserManagementController;
 use App\Http\Controllers\ProductFeatureController;
 use App\Http\Controllers\ProductPackageController;
+use App\Http\Controllers\DurationController;
 use App\Http\Controllers\ProductController;
 use App\Http\Middleware\PermissionMiddleware;
 use App\Http\Controllers\Catalog\ProductSyncController; 
@@ -133,6 +134,7 @@ Route::post('/catalog/products/sync',            [ProductSyncController::class, 
 Route::get ('/catalog/products/{codeOrId}/features',      [ProductFeatureController::class, 'listFeatures']); // ?refresh=1
 Route::post('/catalog/products/{codeOrId}/features/sync', [ProductFeatureController::class, 'syncFeatures']);
 Route::get ('/catalog/products/{codeOrId}/menus',         [ProductFeatureController::class, 'listMenus']);    // ?refresh=1
+
 /* ===================== Packages ===================== */
 // Public: daftar paket per produk (default hanya active)
 Route::get('/catalog/products/{codeOrId}/packages', [ProductPackageController::class, 'listByProduct']);
@@ -144,6 +146,15 @@ Route::middleware(['jwt.auth'])->group(function () {
     Route::post  ('/packages',        [ProductPackageController::class, 'store']);
     Route::put   ('/packages/{id}',   [ProductPackageController::class, 'update']);
     Route::delete('/packages/{id}',   [ProductPackageController::class, 'destroy']);
+});
+
+/* ===================== Duration ===================== */
+Route::middleware('jwt.auth')->group(function () {
+    Route::get('/durations', [DurationController::class, 'index']);
+    Route::get('/durations/{id}', [DurationController::class, 'show']);
+    Route::post('/durations', [DurationController::class, 'store']);
+    Route::put('/durations/{id}', [DurationController::class, 'update']);
+    Route::delete('/durations/{id}', [DurationController::class, 'destroy']);
 });
 /*
 

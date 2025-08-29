@@ -465,3 +465,71 @@ export async function deletePackage(id: number | string) {
   if (!res.ok) return parseError(res);
   return res.json();
 }
+
+/* ======================================================================
+   DURATIONS (CRUD)
+   ====================================================================== */
+
+export async function fetchDurations(params?: {
+  status?: "active" | "archived";
+  q?: string;
+}) {
+  const url = new URL(`${API_URL}/durations`);
+  if (params?.status) url.searchParams.set("status", params.status);
+  if (params?.q) url.searchParams.set("q", params.q);
+
+  const res = await fetch(url.toString(), {
+    headers: authHeaders({ Accept: "application/json" }),
+    cache: "no-store",
+  });
+  if (!res.ok) return parseError(res);
+  return res.json(); // { success, data: Duration[] }
+}
+
+export type DurationPayload = {
+  name: string;
+  length: number;
+  unit: "day" | "week" | "month" | "year";
+  code?: string | null;
+  is_default?: boolean;
+  status: "active" | "archived";
+  notes?: string | null;
+};
+
+export async function createDuration(payload: DurationPayload) {
+  const res = await fetch(`${API_URL}/durations`, {
+    method: "POST",
+    headers: authHeaders({
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    }),
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) return parseError(res);
+  return res.json(); // { success, data }
+}
+
+export async function updateDuration(
+  id: string | number,
+  payload: DurationPayload
+) {
+  const res = await fetch(`${API_URL}/durations/${id}`, {
+    method: "PUT",
+    headers: authHeaders({
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    }),
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) return parseError(res);
+  return res.json(); // { success, data }
+}
+
+export async function deleteDuration(id: string | number) {
+  const res = await fetch(`${API_URL}/durations/${id}`, {
+    method: "DELETE",
+    headers: authHeaders({ Accept: "application/json" }),
+  });
+  if (!res.ok) return parseError(res);
+  return res.json(); // { success }
+}
