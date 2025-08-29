@@ -43,8 +43,23 @@ class ProductController extends Controller
      */
     public function store(Request $request)
     {
+        // Normalisasi: paksa hanya A-Z dan 0-9 (hapus spasi, underscore, dash, dll) + uppercase
+        if ($request->has('product_code')) {
+            $code = (string) $request->input('product_code', '');
+            $code = strtoupper(preg_replace('/[^A-Z0-9]/i', '', $code)); // keep A-Z0-9 only
+            $request->merge([
+                'product_code' => $code,
+            ]);
+        }
+
         $data = $request->validate([
-            'product_code' => 'required|string|max:64|unique:mst_products,product_code',
+            'product_code' => [
+                'required',
+                'string',
+                'max:64',
+                'unique:mst_products,product_code',
+                'regex:/^[A-Z0-9]+$/', // hanya huruf kapital & angka
+            ],
             'product_name' => 'required|string|max:160',
             'category'     => 'nullable|string|max:80',
             'status'       => 'nullable|string|max:32',
@@ -64,7 +79,24 @@ class ProductController extends Controller
     {
         $product = Product::findOrFail($id);
 
+        // Tidak mengizinkan ubah product_code (UI juga disabled).
+        // Jika suatu saat diizinkan, aktifkan blok normalisasi & validasi berikut:
+        /*
+        if ($request->has('product_code')) {
+            $code = (string) $request->input('product_code', '');
+            $code = strtoupper(preg_replace('/[^A-Z0-9]/i', '', $code));
+            $request->merge(['product_code' => $code]);
+        }
+        */
+
         $data = $request->validate([
+            // 'product_code' => [
+            //     'sometimes',
+            //     'string',
+            //     'max:64',
+            //     'regex:/^[A-Z0-9]+$/',
+            //     'unique:mst_products,product_code,' . $product->id,
+            // ],
             'product_name' => 'required|string|max:160',
             'category'     => 'nullable|string|max:80',
             'status'       => 'nullable|string|max:32',
@@ -118,21 +150,24 @@ class ProductController extends Controller
         $synced = [];
 
         foreach ($items as $row) {
-            $code = $row['product_code'] ?? null;
-            if (!$code) continue;
+            $rawCode = $row['product_code'] ?? null;
+            if (!$rawCode) continue;
 
-            // Cari dulu agar db_name lama tidak hilang jika upstream tidak kirim
-            $existing = Product::where('product_code', $code)->first();
+            // Normalisasi incoming code: A-Z0-9 only & uppercase
+            $codeNorm = strtoupper(preg_replace('/[^A-Z0-9]/i', '', (string)$rawCode));
+
+            // Cari eksisting berdasar code yang sudah dinormalisasi
+            $existing = Product::where('product_code', $codeNorm)->first();
 
             $data = [
-                'product_name'        => $row['product_name'] ?? ($existing->product_name ?? $code),
+                'product_name'        => $row['product_name'] ?? ($existing->product_name ?? $codeNorm),
                 'category'            => $row['category'] ?? ($existing->category ?? null),
                 'status'              => $row['status'] ?? ($existing->status ?? 'Active'),
                 'description'         => $row['description'] ?? ($existing->description ?? null),
                 'total_features'      => $row['total_features'] ?? ($existing->total_features ?? 0),
                 'upstream_updated_at' => $row['updated_at'] ?? ($existing->upstream_updated_at ?? null),
                 // db_name: pakai dari upstream kalau ada, else pertahankan eksisting
-                'db_name'             => $row['db_name'] ?? ($existing->db_name ?? ''), // <— keep existing
+                'db_name'             => $row['db_name'] ?? ($existing->db_name ?? ''),
             ];
 
             if ($existing) {
@@ -140,7 +175,7 @@ class ProductController extends Controller
                 $synced[] = $existing->fresh();
             } else {
                 $created = Product::create(array_merge($data, [
-                    'product_code' => $code,
+                    'product_code' => $codeNorm,
                 ]));
                 $synced[] = $created;
             }

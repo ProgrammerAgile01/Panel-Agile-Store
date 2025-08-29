@@ -7,9 +7,11 @@ use App\Http\Controllers\NavItemController;
 use App\Http\Controllers\LevelPermissionController;
 use App\Http\Controllers\LevelUserController;
 use App\Http\Controllers\UserManagementController;
+use App\Http\Controllers\ProductFeatureController;
 use App\Http\Controllers\ProductController;
 use App\Http\Middleware\PermissionMiddleware;
 use App\Http\Controllers\Catalog\ProductSyncController; 
+
 
 /*
 |--------------------------------------------------------------------------
@@ -119,6 +121,17 @@ Route::get ('/catalog/products',                 [ProductSyncController::class, 
 Route::get ('/catalog/products/{codeOrId}',      [ProductSyncController::class, 'show']);
 Route::post('/catalog/products/sync',            [ProductSyncController::class, 'sync']); // tombol Import di FE pakai ini
 
+/* ===================== Public — Frontend Catalog ===================== */
+// Produk katalog dari Panel
+Route::get ('/catalog/products',                 [ProductSyncController::class, 'index']);
+Route::get ('/catalog/products/{codeOrId}',      [ProductSyncController::class, 'show']);
+// Tombol Import pada FE → push produk Panel ke Warehouse
+Route::post('/catalog/products/sync',            [ProductSyncController::class, 'sync']);
+
+// Features & Menus (READ-ONLY, keduanya dari tabel yang sama)
+Route::get ('/catalog/products/{codeOrId}/features',      [ProductFeatureController::class, 'listFeatures']); // ?refresh=1
+Route::post('/catalog/products/{codeOrId}/features/sync', [ProductFeatureController::class, 'syncFeatures']);
+Route::get ('/catalog/products/{codeOrId}/menus',         [ProductFeatureController::class, 'listMenus']);    // ?refresh=1
 /*
 |--------------------------------------------------------------------------
 | DIAGNOSTIC (opsional)

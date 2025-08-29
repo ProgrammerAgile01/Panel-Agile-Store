@@ -54,7 +54,7 @@ import {
 import {
   listPanelCatalogProducts,
   getPanelCatalogProduct,
-  syncPanelProducts,
+  // syncPanelProducts,
   createProductPanel,
   updateProductPanel,
 } from "@/lib/api";
@@ -117,17 +117,25 @@ export function ProductManagement({
   const [formErrors, setFormErrors] = useState<Partial<ProductFormData>>({});
 
   /* ========== Helpers ========== */
-  const generateSlug = (name: string) => {
-    return name
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/(^-|-$)/g, "");
-  };
+  // Format code: hanya huruf kapital A-Z dan angka 0-9 (hapus semua selain itu)
+  const formatCode = (value: string) =>
+    value.toUpperCase().replace(/[^A-Z0-9]/g, "");
 
   const validateForm = (data: ProductFormData): Partial<ProductFormData> => {
     const errors: Partial<ProductFormData> = {};
     if (!data.name.trim()) errors.name = "Product name is required";
-    if (!data.slug.trim()) errors.slug = "Slug (product code) is required";
+
+    if (!data.slug.trim()) {
+      errors.slug = "Code is required";
+    } else {
+      if (data.slug.length > 64) {
+        errors.slug = "Code must be 64 characters or less";
+      } else if (!/^[A-Z0-9]+$/.test(data.slug)) {
+        errors.slug =
+          "Code must contain only uppercase letters and numbers (A–Z, 0–9)";
+      }
+    }
+
     if (!data.description.trim())
       errors.description = "Description is required";
     if (data.description.length > 160)
@@ -290,7 +298,7 @@ export function ProductManagement({
     // Sync dari Warehouse → Panel DB, lalu reload
     setSyncing(true);
     try {
-      await syncPanelProducts();
+      // await syncPanelProducts();
       await loadProducts();
     } catch (e: any) {
       console.error("Sync failed:", e?.message || e);
@@ -430,7 +438,7 @@ export function ProductManagement({
                       setFormData((prev) => ({
                         ...prev,
                         name,
-                        slug: generateSlug(name),
+                        // ❌ Tidak auto-set slug dari name (sesuai requirement)
                       }));
                       if (formErrors.name)
                         setFormErrors((prev) => ({ ...prev, name: undefined }));
@@ -455,15 +463,16 @@ export function ProductManagement({
                     htmlFor="slug"
                     className="text-sm font-medium text-[#374151] dark:text-gray-300"
                   >
-                    Slug/Code *
+                    Code (A–Z, 0–9 only) *
                   </Label>
                   <Input
                     id="slug"
                     value={formData.slug}
                     onChange={(e) => {
+                      const val = formatCode(e.target.value);
                       setFormData((prev) => ({
                         ...prev,
-                        slug: e.target.value,
+                        slug: val,
                       }));
                       if (formErrors.slug)
                         setFormErrors((prev) => ({ ...prev, slug: undefined }));
@@ -473,7 +482,7 @@ export function ProductManagement({
                         ? "border-red-500 focus:border-red-500 focus:ring-red-500"
                         : ""
                     }`}
-                    placeholder="product-code"
+                    placeholder="PRODUCTCODE"
                   />
                   {formErrors.slug && (
                     <p className="text-red-500 text-xs mt-1">
@@ -879,7 +888,6 @@ export function ProductManagement({
                   setFormData((prev) => ({
                     ...prev,
                     name,
-                    slug: prev.slug || generateSlug(name),
                   }));
                   if (formErrors.name)
                     setFormErrors((prev) => ({ ...prev, name: undefined }));
@@ -902,13 +910,14 @@ export function ProductManagement({
                 htmlFor="edit-slug"
                 className="text-sm font-medium text-[#374151] dark:text-gray-300"
               >
-                Slug/Code *
+                Code (A–Z, 0–9 only) *
               </Label>
               <Input
                 id="edit-slug"
                 value={formData.slug}
                 onChange={(e) => {
-                  setFormData((prev) => ({ ...prev, slug: e.target.value }));
+                  const val = formatCode(e.target.value);
+                  setFormData((prev) => ({ ...prev, slug: val }));
                   if (formErrors.slug)
                     setFormErrors((prev) => ({ ...prev, slug: undefined }));
                 }}
@@ -917,7 +926,7 @@ export function ProductManagement({
                     ? "border-red-500 focus:border-red-500 focus:ring-red-500"
                     : ""
                 }`}
-                placeholder="product-code"
+                placeholder="PRODUCTCODE"
                 disabled
               />
               {formErrors.slug && (

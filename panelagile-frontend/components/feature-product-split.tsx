@@ -1,8 +1,6 @@
 "use client";
 
-import type React from "react";
-
-import { useState, useEffect } from "react";
+import { Fragment, useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -37,260 +35,61 @@ import {
   Settings,
 } from "lucide-react";
 import { toast } from "sonner";
-import { whListFeaturesByProduct, whListMenusByProduct } from "@/lib/api";
+import {
+  listPanelCatalogProducts,
+  panelListFeaturesByProduct,
+  panelListMenusByProduct,
+} from "@/lib/api";
 
-/* ======================================================================
-   Types (sesuai UI)
-   ====================================================================== */
+/* ================= Types ================= */
 interface Product {
-  id: string;
+  id: string | number;
+  product_code: string;
   name: string;
   icon: string;
   description: string;
   category: string;
 }
-
 interface MenuGroup {
   group: string;
   modules: MenuModule[];
 }
-
 interface MenuModule {
   name: string;
   menus: MenuItem[];
   submenus?: SubMenuItem[];
 }
-
 interface MenuItem {
   name: string;
   id: string;
 }
-
 interface SubMenuItem {
   menu: string;
   name: string;
   id: string;
 }
-
 interface Feature {
   id: string;
   name: string;
   description: string;
   status: boolean;
+  parent_id?: string | number | null;
+  item_type?: "FEATURE" | "SUBFEATURE" | string;
+  module_name?: string;
+  children?: Feature[];
+  // kunci tambahan untuk builder:
+  feature_code?: string;
+  parent_code?: string;
 }
-
 interface ApiResponse {
   menus: MenuGroup[];
-  features: {
-    global: Feature[];
-    modules: Record<string, Feature[]>;
-  };
+  features: { global: Feature[]; modules: Record<string, Feature[]> };
 }
 
-/* ======================================================================
-   Produk di sidebar (UI tetap)
-   ====================================================================== */
-const products: Product[] = [
-  {
-    id: "rentvix",
-    name: "RentVix Pro",
-    icon: "🚗",
-    description: "Vehicle rental management system",
-    category: "Rental",
-  },
-  {
-    id: "absen",
-    name: "Absen Pro",
-    icon: "👥",
-    description: "Employee attendance management",
-    category: "HR",
-  },
-];
-
-/* ======================================================================
-   Konfigurasi “mock” hanya untuk enable tombol (UI logic yang ada).
-   Kita set true agar tombol Load API aktif; endpoint string tidak dipakai.
-   ====================================================================== */
-const mockApiConfigs: Record<
-  string,
-  { endpoint: string; configured: boolean }
-> = {
-  rentvix: { endpoint: "warehouse", configured: true },
-  absen: { endpoint: "warehouse", configured: true },
-};
-
-/* ======================================================================
-   Mapper dari data Warehouse/AppGenerate -> ApiResponse (struktur UI)
-   ====================================================================== */
-
-// Normalisasi 1 feature dari AppGenerate
-function mapAGFeatureToUI(f: any): Feature {
-  const id =
-    String(
-      f.id ??
-        f.feature_id ??
-        f.feature_code ??
-        f.code ??
-        Math.random().toString(36).slice(2)
-    ) || "";
-  const name =
-    String(f.name ?? f.feature_name ?? f.title ?? f.slug ?? `Feature ${id}`) ||
-    "";
-  const description =
-    String(f.description ?? f.feature_description ?? "") || "";
-  // kebanyakan upstream punya is_active / status
-  const status =
-    f.is_active === false || f.status === "Inactive" || f.status === "Disabled"
-      ? false
-      : true;
-  return { id, name, description, status };
-}
-
-// Bagi features menjadi global vs modules
-function splitFeaturesByModule(features: any[]): {
-  global: Feature[];
-  modules: Record<string, Feature[]>;
-} {
-  const global: Feature[] = [];
-  const modules: Record<string, Feature[]> = {};
-  for (const raw of features || []) {
-    const ui = mapAGFeatureToUI(raw);
-    // cari nama modul di berbagai kemungkinan field
-    const moduleName =
-      raw.module_name ??
-      raw.module ??
-      raw.group ??
-      raw.category ??
-      raw.product_module ??
-      null;
-
-    if (!moduleName) {
-      global.push(ui);
-    } else {
-      const key = String(moduleName);
-      if (!modules[key]) modules[key] = [];
-      modules[key].push(ui);
-    }
-  }
-  return { global, modules };
-}
-
-// Susun struktur MenuGroup dari data menu mentah
-function buildMenusToUI(menus: any[]): MenuGroup[] {
-  if (!Array.isArray(menus) || !menus.length) return [];
-
-  // Kita identifikasi level via parent_id + type
-  const byId: Record<string, any> = {};
-  for (const m of menus) {
-    const id = String(m.id ?? m.menu_id ?? Math.random().toString(36).slice(2));
-    byId[id] = { ...m, __id: id };
-  }
-
-  // Buat map children
-  const children: Record<string, any[]> = {};
-  function addChild(pid: string | null, node: any) {
-    const key = pid === null ? "root" : String(pid);
-    if (!children[key]) children[key] = [];
-    children[key].push(node);
-  }
-  for (const node of Object.values(byId)) {
-    const pid = node.parent_id ?? node.parentId ?? null;
-    addChild(pid, node);
-  }
-
-  // groups: type=group atau level=1 tanpa parent
-  const roots = children["root"] || [];
-
-  // Jika tidak ada deklarasi group/module formal, fallback 1 group “Menus”
-  if (!roots.length) {
-    const flatMenus: MenuItem[] = menus.map((m) => ({
-      id: String(m.code ?? m.route_name ?? m.id ?? Math.random()),
-      name: String(m.title ?? m.name ?? "Menu"),
-    }));
-    return [
-      {
-        group: "Menus",
-        modules: [{ name: "General", menus: flatMenus }],
-      },
-    ];
-  }
-
-  const groups: MenuGroup[] = [];
-  for (const g of roots) {
-    const gname = String(g.title ?? g.name ?? "Group");
-    const gId = String(g.id ?? g.menu_id ?? g.__id);
-
-    const moduleNodes = (children[gId] || []).filter(
-      (x) =>
-        (x.type ?? "").toString().toLowerCase() === "module" ||
-        (x.level ?? 2) >= 2
-    );
-
-    // Jika tidak ada module, treat semua anak sebagai menu
-    if (!moduleNodes.length) {
-      const menusInGroup: MenuItem[] = (children[gId] || []).map((m) => ({
-        id: String(m.code ?? m.route_name ?? m.id ?? Math.random()),
-        name: String(m.title ?? m.name ?? "Menu"),
-      }));
-      groups.push({
-        group: gname,
-        modules: [{ name: "General", menus: menusInGroup }],
-      });
-      continue;
-    }
-
-    const modulesUI: MenuModule[] = [];
-    for (const mod of moduleNodes) {
-      const mid = String(mod.id ?? mod.menu_id ?? mod.__id);
-      const mname = String(mod.title ?? mod.name ?? "Module");
-
-      const menuNodes = (children[mid] || []).filter(
-        (x) =>
-          (x.type ?? "").toString().toLowerCase() === "menu" ||
-          (x.level ?? 3) >= 3
-      );
-
-      const menusUI: MenuItem[] = menuNodes.map((mn) => ({
-        id: String(mn.code ?? mn.route_name ?? mn.id ?? Math.random()),
-        name: String(mn.title ?? mn.name ?? "Menu"),
-      }));
-
-      // submenus (optional)
-      const submenus: SubMenuItem[] = [];
-      for (const mn of menuNodes) {
-        const mnid = String(mn.id ?? mn.menu_id ?? mn.__id);
-        const subs = (children[mnid] || []).filter(
-          (x) =>
-            (x.type ?? "").toString().toLowerCase() === "submenu" ||
-            (x.level ?? 4) >= 4
-        );
-        for (const s of subs) {
-          submenus.push({
-            menu: String(mn.title ?? mn.name ?? "Menu"),
-            id: String(s.code ?? s.route_name ?? s.id ?? Math.random()),
-            name: String(s.title ?? s.name ?? "Submenu"),
-          });
-        }
-      }
-
-      modulesUI.push({
-        name: mname,
-        menus: menusUI,
-        submenus: submenus.length ? submenus : undefined,
-      });
-    }
-
-    groups.push({ group: gname, modules: modulesUI });
-  }
-
-  return groups;
-}
-
-/* ======================================================================
-   COMPONENT
-   ====================================================================== */
+/* ================= Component ================= */
 export function FeatureProductSplit() {
-  const [selectedProduct, setSelectedProduct] = useState("rentvix");
+  const [products, setProducts] = useState<Product[]>([]);
+  const [selectedProduct, setSelectedProduct] = useState<string>("");
   const [searchQuery, setSearchQuery] = useState("");
   const [filterType, setFilterType] = useState<"All" | "Features" | "Menus">(
     "All"
@@ -306,26 +105,54 @@ export function FeatureProductSplit() {
     new Set()
   );
 
-  const selectedProductData = products.find((p) => p.id === selectedProduct);
-  const currentData = apiData[selectedProduct];
-  const apiConfig = mockApiConfigs[selectedProduct];
+  const selectedProductData = products.find(
+    (p) => p.product_code === selectedProduct
+  );
+  const currentData = selectedProduct ? apiData[selectedProduct] : undefined;
 
-  // Mapping product id (panel) -> product_code (AppGenerate)
-  const productCodeMap: Record<string, string> = {
-    rentvix: "rentvix-pro",
-    absen: "absen-pro",
-  };
+  /* --------- Load products from Panel --------- */
+  useEffect(() => {
+    (async () => {
+      try {
+        const json = await listPanelCatalogProducts(undefined, 200);
+        const rows = Array.isArray(json?.data)
+          ? json.data
+          : Array.isArray(json)
+          ? json
+          : [];
+        const mapped: Product[] = rows.map((r: any) => ({
+          id: r.id ?? r.product_code ?? r.code ?? crypto.randomUUID(),
+          product_code:
+            String(r.product_code ?? r.code ?? r.slug ?? "").toUpperCase() ||
+            "PRODUCT",
+          name: String(
+            r.product_name ?? r.name ?? r.title ?? r.product_code ?? "Product"
+          ),
+          icon: "📦",
+          description:
+            String(r.description ?? r.product_description ?? "") || "",
+          category: String(r.category ?? r.product_category ?? "General"),
+        }));
+        setProducts(mapped);
+        if (!selectedProduct && mapped.length > 0)
+          setSelectedProduct(mapped[0].product_code);
+      } catch (e: any) {
+        console.error(
+          "[FeatureProductSplit] Load products error:",
+          e?.message || e
+        );
+        toast.error("Failed to load products from Panel.");
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  /* -------------------------- LOAD API (REAL) -------------------------- */
-  const handleLoadAPI = async () => {
-    if (!apiConfig.configured) return;
-
-    const code = productCodeMap[selectedProduct] ?? selectedProduct;
-
+  /* --------- Load/Refresh mirror from Panel --------- */
+  const handleLoadAPI = async (refresh = false) => {
+    if (!selectedProduct) return;
     setIsLoading(true);
     try {
-      // 1) Ambil fitur per produk dari Warehouse (proxy ke AppGenerate)
-      const fjson = await whListFeaturesByProduct(code);
+      const fjson = await panelListFeaturesByProduct(selectedProduct, refresh);
       const frows: any[] = Array.isArray(fjson?.data)
         ? fjson.data
         : Array.isArray(fjson)
@@ -333,16 +160,15 @@ export function FeatureProductSplit() {
         : [];
       const { global, modules } = splitFeaturesByModule(frows);
 
-      // 2) Ambil menus per produk (kalau endpoint belum ada, hasilkan [])
       let menusUI: MenuGroup[] = [];
       try {
-        const mjson = await whListMenusByProduct(code);
+        const mjson = await panelListMenusByProduct(selectedProduct, refresh);
         const mrows: any[] = Array.isArray(mjson?.data)
           ? mjson.data
           : Array.isArray(mjson)
           ? mjson
           : [];
-        menusUI = buildMenusToUI(mrows);
+        menusUI = buildMenusFromMirror(mrows);
       } catch {
         menusUI = [];
       }
@@ -351,15 +177,13 @@ export function FeatureProductSplit() {
         menus: menusUI,
         features: { global, modules },
       };
-
       setApiData((prev) => ({ ...prev, [selectedProduct]: payload }));
 
       const totalMenus = payload.menus.reduce(
-        (acc, group) =>
+        (acc, g) =>
           acc +
-          group.modules.reduce(
-            (modAcc, mod) =>
-              modAcc + mod.menus.length + (mod.submenus?.length || 0),
+          g.modules.reduce(
+            (macc, m) => macc + m.menus.length + (m.submenus?.length || 0),
             0
           ),
         0
@@ -372,94 +196,260 @@ export function FeatureProductSplit() {
         );
 
       toast.success(
-        `Loaded ${totalMenus} menus and ${totalFeatures} features from API`
+        `Loaded ${totalMenus} menus and ${totalFeatures} features${
+          fjson?.meta?.mirrored != null
+            ? ` (mirrored: ${fjson.meta.mirrored}${
+                fjson?.meta?.subfeatures != null
+                  ? ` + ${fjson.meta.subfeatures} sub`
+                  : ""
+              })`
+            : ""
+        }`
       );
-    } catch (error: any) {
-      console.error(
-        "[FeatureProductSplit] API Load Error:",
-        error?.message || error
-      );
-      toast.error("Failed to load data from API. Please try again.");
+    } catch (e: any) {
+      console.error("[FeatureProductSplit] Load Error:", e?.message || e);
+      toast.error("Failed to load data.");
     } finally {
       setIsLoading(false);
     }
   };
 
-  /* ----------------------- Expand/Collapse helpers --------------------- */
-  const toggleGroup = (groupName: string) => {
-    const newExpanded = new Set(expandedGroups);
-    newExpanded.has(groupName)
-      ? newExpanded.delete(groupName)
-      : newExpanded.add(groupName);
-    setExpandedGroups(newExpanded);
+  /* --------- UI helpers (unchanged) --------- */
+  const toggleGroup = (g: string) => {
+    const s = new Set(expandedGroups);
+    s.has(g) ? s.delete(g) : s.add(g);
+    setExpandedGroups(s);
   };
-
-  const toggleModule = (moduleName: string) => {
-    const newExpanded = new Set(expandedModules);
-    newExpanded.has(moduleName)
-      ? newExpanded.delete(moduleName)
-      : newExpanded.add(moduleName);
-    setExpandedModules(newExpanded);
+  const toggleModule = (m: string) => {
+    const s = new Set(expandedModules);
+    s.has(m) ? s.delete(m) : s.add(m);
+    setExpandedModules(s);
   };
-
   const expandAll = () => {
     if (currentData?.menus) {
-      const allGroups = new Set(currentData.menus.map((g) => g.group));
-      const allModules = new Set(
+      const gs = new Set(currentData.menus.map((g) => g.group));
+      const ms = new Set(
         currentData.menus.flatMap((g) =>
           g.modules.map((m) => `${g.group}-${m.name}`)
         )
       );
-      setExpandedGroups(allGroups);
-      setExpandedModules(allModules);
+      setExpandedGroups(gs);
+      setExpandedModules(ms);
     }
   };
-
   const collapseAll = () => {
     setExpandedGroups(new Set());
     setExpandedModules(new Set());
   };
-
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
+  const copyToClipboard = (t: string) => {
+    navigator.clipboard.writeText(t);
     toast.success("ID copied to clipboard");
   };
-
-  const handleFilterChange = (filter: "All" | "Features" | "Menus") => {
-    setFilterType(filter);
-    if (filter === "Features") setActiveTab("features");
-    else if (filter === "Menus") setActiveTab("menus");
-  };
-
-  const handleProductSelect = (productId: string) => {
-    setSelectedProduct(productId);
+  const handleProductSelect = (code: string) => {
+    setSelectedProduct(code);
     setIsMobileMenuOpen(false);
   };
+  const handleReload = () => handleLoadAPI(true);
 
-  const handleReload = () => handleLoadAPI();
-
-  const handleOpenAPIConfig = () => {
-    toast.info(
-      "Navigate to Products → Product Details → API Config to configure endpoint"
-    );
-  };
-
-  const handleKeyDown = (event: React.KeyboardEvent, action: () => void) => {
-    if (event.key === "Enter" || event.key === " ") {
-      event.preventDefault();
-      action();
-    }
-  };
-
-  /* -------------------------- Debounced search ------------------------- */
   useEffect(() => {
-    const timer = setTimeout(() => {
-      // search could be implemented here (UI unchanged)
-    }, 250);
-    return () => clearTimeout(timer);
+    const t = setTimeout(() => {}, 250);
+    return () => clearTimeout(t);
   }, [searchQuery]);
 
-  /* =============================== UI ================================== */
+  /* --------- Mappers --------- */
+
+  function mapMirrorFeatureToUI(f: any): Feature {
+    const id =
+      String(
+        f.id ?? f.feature_code ?? f.code ?? Math.random().toString(36).slice(2)
+      ) || "";
+
+    // Prioritas 'name' (Panel sudah seragam dg Warehouse)
+    const name =
+      String(
+        f.name ??
+          f.feature_name ??
+          f.title ??
+          f.slug ??
+          f.feature_code ??
+          `Feature ${id}`
+      ) || "";
+
+    const baseDesc = String(f.description ?? "") || "";
+
+    const price =
+      typeof f.price_addon !== "undefined" ? Number(f.price_addon) : undefined;
+
+    const trialAvail =
+      typeof f.trial_available !== "undefined"
+        ? !!f.trial_available
+        : undefined;
+
+    const trialDays =
+      typeof f.trial_days !== "undefined" ? Number(f.trial_days) : undefined;
+
+    const extras: string[] = [];
+    if (typeof price !== "undefined")
+      extras.push(`Price Add-on: $${(price ?? 0).toFixed(2)}`);
+    if (typeof trialAvail !== "undefined") {
+      extras.push(
+        `Trial: ${trialAvail ? "Available" : "Not available"}${
+          trialAvail && trialDays ? ` (${trialDays} days)` : ""
+        }`
+      );
+    }
+    const description = [baseDesc, extras.join(" | ")]
+      .filter(Boolean)
+      .join(" — ");
+
+    const active =
+      f.is_active === false ||
+      f.status === "Inactive" ||
+      f.status === "Disabled"
+        ? false
+        : true;
+
+    return {
+      id,
+      name,
+      description,
+      status: active,
+      parent_id: f.parent_id ?? null,
+      item_type: String(f.item_type ?? f.type ?? "FEATURE").toUpperCase(),
+      module_name:
+        f.module_name ?? f.module ?? f.group ?? f.category ?? "General",
+      feature_code: f.feature_code ?? f.code ?? undefined,
+      parent_code: f.parent_code ?? f.menu_parent_code ?? undefined, // Panel kirim menu_parent_code
+    } as Feature;
+  }
+
+  function splitFeaturesByModule(features: any[]): {
+    global: Feature[];
+    modules: Record<string, Feature[]>;
+  } {
+    const mapped: Feature[] = (features || []).map(mapMirrorFeatureToUI);
+
+    // Index parent
+    const parentIndex = new Map<string, Feature>();
+
+    for (const f of mapped) {
+      const t = String(f.item_type || "FEATURE").toUpperCase();
+      if (t === "SUBFEATURE") continue;
+      const p: Feature = { ...f, children: [] };
+      const keys = new Set<string>(
+        [
+          String(f.id || ""),
+          String(f.feature_code || ""),
+          String((f as any).code || ""),
+        ].filter(Boolean)
+      );
+      for (const k of keys) parentIndex.set(k, p);
+    }
+
+    // Pasangkan anak ke induk
+    for (const f of mapped) {
+      const t = String(f.item_type || "FEATURE").toUpperCase();
+      if (t !== "SUBFEATURE") continue;
+
+      const candidateKeys = [
+        String(f.parent_code || ""),
+        String(f.parent_id || ""),
+      ].filter(Boolean);
+
+      let parent: Feature | undefined;
+      for (const k of candidateKeys) {
+        parent = parentIndex.get(k);
+        if (parent) break;
+      }
+      if (parent) {
+        (parent.children ||= []).push({
+          ...f,
+          children: undefined,
+        });
+      }
+    }
+
+    // Group per module
+    const global: Feature[] = [];
+    const modules: Record<string, Feature[]> = {};
+    const seen = new Set<Feature>();
+
+    for (const p of parentIndex.values()) {
+      if (seen.has(p)) continue;
+      seen.add(p);
+      const mod = p.module_name || "General";
+      if (!mod || mod === "Global") global.push(p);
+      else (modules[mod] ||= []).push(p);
+    }
+
+    Object.keys(modules).forEach((k) => {
+      modules[k].sort((a, b) => a.name.localeCompare(b.name));
+      modules[k].forEach((p) =>
+        p.children?.sort((a, b) => a.name.localeCompare(b.name))
+      );
+    });
+    global.sort((a, b) => a.name.localeCompare(b.name));
+
+    return { global, modules };
+  }
+
+  function buildMenusFromMirror(rows: any[]): MenuGroup[] {
+    if (!Array.isArray(rows) || rows.length === 0) return [];
+
+    // Guard: kalau data sebenarnya fitur, kosongkan tab Menus
+    const onlyFeatures = rows.every((r) => {
+      const t = String(r.type ?? r.item_type ?? "MENU").toUpperCase();
+      return t === "FEATURE" || t === "SUBFEATURE";
+    });
+    if (onlyFeatures) return [];
+
+    if (
+      rows.length &&
+      rows[0] &&
+      typeof rows[0] === "object" &&
+      "group" in rows[0] &&
+      "modules" in rows[0]
+    ) {
+      return rows as unknown as MenuGroup[];
+    }
+
+    const modulesMap: Record<
+      string,
+      { menus: MenuItem[]; submenus: SubMenuItem[] }
+    > = {};
+    for (const r of rows || []) {
+      const type = String(r.type ?? r.item_type ?? "MENU").toUpperCase();
+      const moduleName: string = r.module_name ?? r.module ?? "General";
+      if (!modulesMap[moduleName])
+        modulesMap[moduleName] = { menus: [], submenus: [] };
+      if (type === "SUBMENU") {
+        modulesMap[moduleName].submenus.push({
+          menu: String(
+            r.parent_name ?? r.parent ?? r.menu ?? r.menu_title ?? ""
+          ),
+          id: String(r.id ?? r.code ?? Math.random()),
+          name: String(r.name ?? r.title ?? "Submenu"),
+        });
+      } else if (type === "MENU") {
+        modulesMap[moduleName].menus.push({
+          id: String(r.id ?? r.code ?? Math.random()),
+          name: String(r.name ?? r.title ?? "Menu"),
+        });
+      }
+    }
+    return Object.entries(modulesMap).map(([mod, val]) => ({
+      group: mod,
+      modules: [
+        {
+          name: mod,
+          menus: val.menus,
+          submenus: val.submenus.length ? val.submenus : undefined,
+        },
+      ],
+    }));
+  }
+
+  /* --------- UI (markup tidak diubah) --------- */
   return (
     <div className="flex h-[calc(100vh-4rem)] bg-background">
       {isMobileMenuOpen && (
@@ -471,8 +461,7 @@ export function FeatureProductSplit() {
 
       {/* Sidebar */}
       <div
-        className={`
-        fixed lg:relative inset-y-0 left-0 z-50 w-[260px] 
+        className={`fixed lg:relative inset-y-0 left-0 z-50 w-[260px] 
         bg-gradient-to-b from-slate-900 to-slate-800 dark:from-slate-950 dark:to-slate-900
         transform transition-transform duration-300 ease-in-out lg:transform-none
         ${
@@ -480,9 +469,7 @@ export function FeatureProductSplit() {
             ? "translate-x-0"
             : "-translate-x-full lg:translate-x-0"
         }
-        flex flex-col border-r border-slate-700/50
-        scrollbar-thin scrollbar-thumb-slate-600 scrollbar-track-transparent
-      `}
+        flex flex-col border-r border-slate-700/50 scrollbar-thin scrollbar-thumb-slate-600 scrollbar-track-transparent`}
       >
         <div className="py-4 px-3 border-b border-slate-700/50">
           <div className="flex items-center justify-between">
@@ -503,62 +490,47 @@ export function FeatureProductSplit() {
         </div>
 
         <div className="flex-1 overflow-y-auto py-4 px-3 space-y-2 scrollbar-thin scrollbar-thumb-slate-600 scrollbar-track-transparent">
-          {products.map((product) => (
+          {products.map((p) => (
             <button
-              key={product.id}
-              className={`
-                w-full h-[72px] rounded-xl p-3 transition-all duration-200 text-left
-                flex items-center gap-3 group
-                ${
-                  selectedProduct === product.id
-                    ? "bg-gradient-to-r from-slate-800/80 to-slate-700/80 border border-slate-600/50 shadow-lg shadow-slate-900/20 ring-1 ring-slate-500/30"
-                    : "bg-slate-800/60 hover:bg-slate-700/70 border border-transparent hover:border-slate-600/30"
-                }
-              `}
-              onClick={() => handleProductSelect(product.id)}
+              key={p.id}
+              className={`w-full h-[72px] rounded-xl p-3 transition-all duration-200 text-left flex items-center gap-3 group
+              ${
+                selectedProduct === p.product_code
+                  ? "bg-gradient-to-r from-slate-800/80 to-slate-700/80 border border-slate-600/50 shadow-lg shadow-slate-900/20 ring-1 ring-slate-500/30"
+                  : "bg-slate-800/60 hover:bg-slate-700/70 border border-transparent hover:border-slate-600/30"
+              }`}
+              onClick={() => setSelectedProduct(p.product_code)}
             >
               <div
-                className={`
-                w-8 h-8 rounded-full flex items-center justify-center text-lg shrink-0
-                ${
-                  selectedProduct === product.id
+                className={`${
+                  selectedProduct === p.product_code
                     ? "bg-gradient-to-br from-slate-600 to-slate-700 shadow-md"
                     : "bg-gradient-to-br from-slate-700 to-slate-800 group-hover:from-slate-600 group-hover:to-slate-700"
-                }
-                transition-all duration-200
-              `}
+                } w-8 h-8 rounded-full flex items-center justify-center text-lg shrink-0 transition-all duration-200`}
               >
-                {product.icon}
+                {p.icon}
               </div>
-
               <div className="flex-1 min-w-0">
                 <h3
-                  className={`
-                  font-semibold text-sm truncate transition-colors duration-200
-                  ${
-                    selectedProduct === product.id
+                  className={`${
+                    selectedProduct === p.product_code
                       ? "text-white"
                       : "text-slate-100 group-hover:text-white"
-                  }
-                `}
+                  } font-semibold text-sm truncate transition-colors duration-200`}
                 >
-                  {product.name}
+                  {p.name}
                 </h3>
                 <p
-                  className={`
-                  text-xs truncate transition-colors duration-200
-                  ${
-                    selectedProduct === product.id
+                  className={`${
+                    selectedProduct === p.product_code
                       ? "text-slate-300"
                       : "text-slate-400 group-hover:text-slate-300"
-                  }
-                `}
+                  } text-xs truncate transition-colors duration-200`}
                 >
-                  {product.description}
+                  {p.description}
                 </p>
               </div>
-
-              {selectedProduct === product.id && (
+              {selectedProduct === p.product_code && (
                 <ChevronRight className="h-4 w-4 text-slate-400 shrink-0" />
               )}
             </button>
@@ -567,8 +539,7 @@ export function FeatureProductSplit() {
 
         <div className="p-3 border-t border-slate-700/50">
           <Button className="w-full h-10 rounded-lg bg-gradient-to-r from-slate-700 to-slate-800 hover:from-slate-600 hover:to-slate-700 text-white font-semibold shadow-lg hover:shadow-xl transition-all duration-200">
-            <Plus className="h-4 w-4 mr-2" />
-            Add Product
+            <Plus className="h-4 w-4 mr-2" /> Add Product
           </Button>
         </div>
       </div>
@@ -612,14 +583,13 @@ export function FeatureProductSplit() {
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
-              {/* Filter chips */}
               <div className="flex gap-1">
                 {["All", "Features", "Menus"].map((filter) => (
                   <Button
                     key={filter}
                     variant={filterType === filter ? "default" : "outline"}
                     size="sm"
-                    onClick={() => handleFilterChange(filter as any)}
+                    onClick={() => setFilterType(filter as any)}
                     className={
                       filterType === filter
                         ? "bg-purple-600 hover:bg-purple-700"
@@ -632,7 +602,6 @@ export function FeatureProductSplit() {
                 ))}
               </div>
 
-              {/* Group by Module toggle */}
               <div className="flex items-center gap-2 px-3 py-1.5 rounded-md border bg-background">
                 <span className="text-sm whitespace-nowrap">
                   Group by Module
@@ -645,52 +614,44 @@ export function FeatureProductSplit() {
                 />
               </div>
 
-              {/* Export CSV */}
               <Button
                 variant="outline"
                 size="sm"
                 disabled={isLoading || !currentData}
                 aria-label="Export current view to CSV"
               >
-                <Download className="h-4 w-4 mr-1" />
-                Export CSV
+                <Download className="h-4 w-4 mr-1" /> Export CSV
               </Button>
 
-              {/* Load API */}
               <Button
                 size="sm"
-                onClick={handleLoadAPI}
-                disabled={
-                  isLoading || !apiConfig.configured || !apiConfig.endpoint
-                }
+                onClick={() => handleLoadAPI(true)}
+                disabled={isLoading || !selectedProduct}
                 className="bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 font-medium"
-                aria-label="Load data from configured API endpoint"
+                aria-label="Load data"
               >
                 {isLoading ? (
                   <Loader2 className="h-4 w-4 mr-1 animate-spin" />
                 ) : (
                   <RefreshCw className="h-4 w-4 mr-1" />
-                )}
-                Load API
+                )}{" "}
+                Load
               </Button>
             </div>
           </div>
 
-          {(!apiConfig.configured || !apiConfig.endpoint) && (
-            <Alert className="mt-4">
-              <AlertCircle className="h-4 w-4" />
-              <AlertDescription className="flex items-center justify-between">
-                <span>
-                  No API configured for this product. Set it in{" "}
-                  <strong>Products → API Config</strong>.
-                </span>
-                <Button variant="ghost" size="sm" onClick={handleOpenAPIConfig}>
-                  <ExternalLink className="h-4 w-4 mr-1" />
-                  Open API Config
-                </Button>
-              </AlertDescription>
-            </Alert>
-          )}
+          <Alert className="mt-4">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription className="flex items-center justify-between">
+              <span>
+                Data fitur & menu bersifat <strong>read-only</strong> (mirror
+                dari Warehouse ke Panel).
+              </span>
+              <Button variant="ghost" size="sm" onClick={handleReload}>
+                <ExternalLink className="h-4 w-4 mr-1" /> Refresh mirror
+              </Button>
+            </AlertDescription>
+          </Alert>
         </div>
 
         <div className="flex-1 overflow-auto p-6">
@@ -701,29 +662,15 @@ export function FeatureProductSplit() {
                   <Settings className="h-16 w-16 mx-auto mb-6 opacity-50" />
                   <h3 className="text-xl font-semibold mb-3">Connect & Load</h3>
                   <p className="mb-6 max-w-md mx-auto">
-                    Click <strong>Load API</strong> to fetch Menus and Features
-                    for this product.
+                    Click <strong>Load</strong> to fetch Menus and Features for
+                    this product.
                   </p>
-                  {apiConfig.configured && apiConfig.endpoint ? (
-                    <Button
-                      onClick={handleLoadAPI}
-                      className="bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700"
-                    >
-                      <RefreshCw className="h-4 w-4 mr-2" />
-                      Load API
-                    </Button>
-                  ) : (
-                    <div className="space-y-3">
-                      <p className="text-sm text-muted-foreground">
-                        API endpoint is configured in{" "}
-                        <strong>Products → API Config</strong>
-                      </p>
-                      <Button variant="outline" onClick={handleOpenAPIConfig}>
-                        <ExternalLink className="h-4 w-4 mr-2" />
-                        Open API Config
-                      </Button>
-                    </div>
-                  )}
+                  <Button
+                    onClick={() => handleLoadAPI(true)}
+                    className="bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700"
+                  >
+                    <RefreshCw className="h-4 w-4 mr-2" /> Load
+                  </Button>
                 </div>
               </CardContent>
             </Card>
@@ -738,7 +685,7 @@ export function FeatureProductSplit() {
                 <TabsTrigger value="features">Features</TabsTrigger>
               </TabsList>
 
-              {/* ====== MENUS ====== */}
+              {/* MENUS */}
               <TabsContent value="menus" className="space-y-4">
                 <Card className="glass-morphism shadow-lg rounded-xl">
                   <CardHeader className="pb-3">
@@ -762,7 +709,7 @@ export function FeatureProductSplit() {
                     {currentData.menus.length === 0 ? (
                       <div className="text-center py-8 text-muted-foreground">
                         <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                        <p>No menus returned from API</p>
+                        <p>No menus mirrored</p>
                       </div>
                     ) : (
                       <div className="space-y-2">
@@ -771,9 +718,6 @@ export function FeatureProductSplit() {
                             <button
                               className="w-full flex items-center gap-3 p-3 hover:bg-muted/50 transition-colors focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 rounded-lg"
                               onClick={() => toggleGroup(group.group)}
-                              onKeyDown={(e) =>
-                                handleKeyDown(e, () => toggleGroup(group.group))
-                              }
                               aria-expanded={expandedGroups.has(group.group)}
                               aria-label={`${group.group} group, ${
                                 expandedGroups.has(group.group)
@@ -808,13 +752,6 @@ export function FeatureProductSplit() {
                                       onClick={() =>
                                         toggleModule(
                                           `${group.group}-${module.name}`
-                                        )
-                                      }
-                                      onKeyDown={(e) =>
-                                        handleKeyDown(e, () =>
-                                          toggleModule(
-                                            `${group.group}-${module.name}`
-                                          )
                                         )
                                       }
                                       aria-expanded={expandedModules.has(
@@ -919,7 +856,7 @@ export function FeatureProductSplit() {
                 </Card>
               </TabsContent>
 
-              {/* ====== FEATURES ====== */}
+              {/* FEATURES */}
               <TabsContent value="features" className="space-y-6">
                 <Card className="glass-morphism shadow-lg rounded-xl">
                   <CardHeader className="pb-3">
@@ -945,38 +882,89 @@ export function FeatureProductSplit() {
                         </TableHeader>
                         <TableBody>
                           {currentData.features.global.map((feature) => (
-                            <TableRow key={feature.id}>
-                              <TableCell className="font-medium">
-                                {feature.name}
-                              </TableCell>
-                              <TableCell>{feature.description}</TableCell>
-                              <TableCell>
-                                <Badge
-                                  variant={
-                                    feature.status ? "default" : "secondary"
-                                  }
-                                  className={
-                                    feature.status
-                                      ? "bg-green-600 hover:bg-green-700"
-                                      : "bg-gray-600"
-                                  }
+                            <Fragment key={feature.id}>
+                              <TableRow>
+                                <TableCell className="font-medium">
+                                  {feature.name}
+                                </TableCell>
+                                <TableCell>{feature.description}</TableCell>
+                                <TableCell>
+                                  <Badge
+                                    variant={
+                                      feature.status ? "default" : "secondary"
+                                    }
+                                    className={
+                                      feature.status
+                                        ? "bg-green-600 hover:bg-green-700"
+                                        : "bg-gray-600"
+                                    }
+                                  >
+                                    {feature.status ? "Active" : "Inactive"}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => copyToClipboard(feature.id)}
+                                    className="font-mono text-xs hover:bg-muted"
+                                    aria-label={`Copy feature ID ${feature.id}`}
+                                  >
+                                    {feature.id}
+                                    <Copy className="h-3 w-3 ml-1" />
+                                  </Button>
+                                </TableCell>
+                              </TableRow>
+
+                              {feature.children?.map((child) => (
+                                <TableRow
+                                  key={child.id}
+                                  className="bg-muted/30"
                                 >
-                                  {feature.status ? "Active" : "Inactive"}
-                                </Badge>
-                              </TableCell>
-                              <TableCell>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => copyToClipboard(feature.id)}
-                                  className="font-mono text-xs hover:bg-muted"
-                                  aria-label={`Copy feature ID ${feature.id}`}
-                                >
-                                  {feature.id}
-                                  <Copy className="h-3 w-3 ml-1" />
-                                </Button>
-                              </TableCell>
-                            </TableRow>
+                                  <TableCell className="pl-8 flex items-center gap-2">
+                                    <span className="text-muted-foreground">
+                                      ↳
+                                    </span>
+                                    {child.name}
+                                    <Badge
+                                      variant="outline"
+                                      className="ml-2 text-xs"
+                                    >
+                                      Subfeature
+                                    </Badge>
+                                  </TableCell>
+                                  <TableCell className="text-sm text-muted-foreground">
+                                    {child.description}
+                                  </TableCell>
+                                  <TableCell>
+                                    <Badge
+                                      variant={
+                                        child.status ? "default" : "secondary"
+                                      }
+                                      className={
+                                        child.status
+                                          ? "bg-green-600 hover:bg-green-700"
+                                          : "bg-gray-600"
+                                      }
+                                    >
+                                      {child.status ? "Active" : "Inactive"}
+                                    </Badge>
+                                  </TableCell>
+                                  <TableCell>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => copyToClipboard(child.id)}
+                                      className="font-mono text-xs hover:bg-muted"
+                                      aria-label={`Copy feature ID ${child.id}`}
+                                    >
+                                      {child.id}
+                                      <Copy className="h-3 w-3 ml-1" />
+                                    </Button>
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </Fragment>
                           ))}
                         </TableBody>
                       </Table>
@@ -1010,40 +998,97 @@ export function FeatureProductSplit() {
                             </TableHeader>
                             <TableBody>
                               {features.map((feature) => (
-                                <TableRow key={feature.id}>
-                                  <TableCell className="font-medium">
-                                    {feature.name}
-                                  </TableCell>
-                                  <TableCell>{feature.description}</TableCell>
-                                  <TableCell>
-                                    <Badge
-                                      variant={
-                                        feature.status ? "default" : "secondary"
-                                      }
-                                      className={
-                                        feature.status
-                                          ? "bg-green-600 hover:bg-green-700"
-                                          : "bg-gray-600"
-                                      }
+                                <Fragment key={feature.id}>
+                                  <TableRow>
+                                    <TableCell className="font-medium">
+                                      {feature.name}
+                                    </TableCell>
+                                    <TableCell>{feature.description}</TableCell>
+                                    <TableCell>
+                                      <Badge
+                                        variant={
+                                          feature.status
+                                            ? "default"
+                                            : "secondary"
+                                        }
+                                        className={
+                                          feature.status
+                                            ? "bg-green-600 hover:bg-green-700"
+                                            : "bg-gray-600"
+                                        }
+                                      >
+                                        {feature.status ? "Active" : "Inactive"}
+                                      </Badge>
+                                    </TableCell>
+                                    <TableCell>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() =>
+                                          copyToClipboard(feature.id)
+                                        }
+                                        className="font-mono text-xs hover:bg-muted"
+                                        aria-label={`Copy feature ID ${feature.id}`}
+                                      >
+                                        {feature.id}
+                                        <Copy className="h-3 w-3 ml-1" />
+                                      </Button>
+                                    </TableCell>
+                                  </TableRow>
+
+                                  {feature.children?.map((child) => (
+                                    <TableRow
+                                      key={child.id}
+                                      className="bg-muted/30"
                                     >
-                                      {feature.status ? "Active" : "Inactive"}
-                                    </Badge>
-                                  </TableCell>
-                                  <TableCell>
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() =>
-                                        copyToClipboard(feature.id)
-                                      }
-                                      className="font-mono text-xs hover:bg-muted"
-                                      aria-label={`Copy feature ID ${feature.id}`}
-                                    >
-                                      {feature.id}
-                                      <Copy className="h-3 w-3 ml-1" />
-                                    </Button>
-                                  </TableCell>
-                                </TableRow>
+                                      <TableCell className="pl-8 flex items-center gap-2">
+                                        <span className="text-muted-foreground">
+                                          ↳
+                                        </span>
+                                        {child.name}
+                                        <Badge
+                                          variant="outline"
+                                          className="ml-2 text-xs"
+                                        >
+                                          Subfeature
+                                        </Badge>
+                                      </TableCell>
+                                      <TableCell className="text-sm text-muted-foreground">
+                                        {child.description}
+                                      </TableCell>
+                                      <TableCell>
+                                        <Badge
+                                          variant={
+                                            child.status
+                                              ? "default"
+                                              : "secondary"
+                                          }
+                                          className={
+                                            child.status
+                                              ? "bg-green-600 hover:bg-green-700"
+                                              : "bg-gray-600"
+                                          }
+                                        >
+                                          {child.status ? "Active" : "Inactive"}
+                                        </Badge>
+                                      </TableCell>
+                                      <TableCell>
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          onClick={() =>
+                                            copyToClipboard(child.id)
+                                          }
+                                          className="font-mono text-xs hover:bg-muted"
+                                          aria-label={`Copy feature ID ${child.id}`}
+                                        >
+                                          {child.id}
+                                          <Copy className="h-3 w-3 ml-1" />
+                                        </Button>
+                                      </TableCell>
+                                    </TableRow>
+                                  ))}
+                                </Fragment>
                               ))}
                             </TableBody>
                           </Table>

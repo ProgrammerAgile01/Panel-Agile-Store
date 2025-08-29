@@ -258,17 +258,12 @@ export async function fetchNavItemsTree() {
    ====================================================================== */
 
 /* ======================================================================
-   PANEL CATALOG (tabel mst_products) — dipakai ProductManagement
+   PRODUCTS (Panel Agile Store) — sumber sidebar
    ====================================================================== */
 
-/**
- * List produk dari Panel (DB mst_products)
- * - endpoint: GET /api/catalog/products
- * - bisa mengembalikan paginator {data, meta, links}
- */
-// Panel (public gateway)
 export async function listPanelCatalogProducts(q?: string, perPage = 200) {
-  const url = new URL(`${API_URL}/catalog/products`);
+  const base = API_URL.replace(/\/$/, "");
+  const url = new URL(`${base}/catalog/products`);
   if (q) url.searchParams.set("q", q);
   url.searchParams.set("per_page", String(perPage));
   const res = await fetch(url.toString(), {
@@ -279,47 +274,55 @@ export async function listPanelCatalogProducts(q?: string, perPage = 200) {
   return res.json();
 }
 
-export async function syncPanelProducts() {
-  const res = await fetch(`${API_URL}/catalog/products/sync`, {
-    method: "POST",
-    headers: { Accept: "application/json" },
-  });
-  if (!res.ok) return parseError(res);
-  return res.json();
-}
-
 export async function getPanelCatalogProduct(codeOrId: string | number) {
   const res = await fetch(`${API_URL}/catalog/products/${codeOrId}`, {
-    headers: authHeaders({ Accept: "application/json" }),
+    headers: { Accept: "application/json" },
     cache: "no-store",
   });
   if (!res.ok) return parseError(res);
   return res.json(); // {data:{...}}
 }
 
-/**
- * Trigger sinkronisasi produk dari Warehouse → Panel DB
- * - endpoint: POST /api/catalog/products/sync
- */
+/* ======================================================================
+   FEATURES & MENUS (READ-ONLY mirror)
+   ====================================================================== */
 
-/**
- * Sinkron satu produk by code/id
- * - endpoint: POST /api/catalog/products/{code}/sync
- */
-export async function syncOnePanelProduct(codeOrId: string) {
-  const res = await fetch(`${API_URL}/catalog/products/${codeOrId}/sync`, {
-    method: "POST",
-    headers: authHeaders({ Accept: "application/json" }),
+export async function panelListFeaturesByProduct(
+  codeOrId: string,
+  refresh = false
+) {
+  const url = new URL(
+    `${API_URL}/catalog/products/${encodeURIComponent(codeOrId)}/features`
+  );
+  if (refresh) url.searchParams.set("refresh", "1");
+  const res = await fetch(url.toString(), {
+    headers: { Accept: "application/json" },
+    cache: "no-store",
   });
   if (!res.ok) return parseError(res);
-  return res.json();
+  return res.json(); // { data: rows(item_type=FEATURE) }
 }
 
-/**
- * CRUD langsung ke /api/products (controller CRUD Panel)
- * - createProductPanel / updateProductPanel dipakai oleh modal Add/Edit
- */
-// ===== fix 2: CRUD /api/products WAJIB kirim Authorization =====
+export async function panelListMenusByProduct(
+  codeOrId: string,
+  refresh = false
+) {
+  const url = new URL(
+    `${API_URL}/catalog/products/${encodeURIComponent(codeOrId)}/menus`
+  );
+  if (refresh) url.searchParams.set("refresh", "1");
+  const res = await fetch(url.toString(), {
+    headers: { Accept: "application/json" },
+    cache: "no-store",
+  });
+  if (!res.ok) return parseError(res);
+  return res.json(); // { data: rows(item_type in MENU,SUBMENU) }
+}
+
+/* ======================================================================
+   (Opsional) CRUD Products via JWT (dipakai halaman lain di Panel)
+   ====================================================================== */
+
 export async function createProductPanel(payload: {
   product_code: string;
   product_name: string;
@@ -360,51 +363,4 @@ export async function updateProductPanel(
   });
   if (!res.ok) return parseError(res);
   return res.json();
-}
-
-export async function whListFeaturesByProduct(idOrCode: string) {
-  const base = WAREHOUSE_API.replace(/\/$/, "");
-  const url = `${base}/catalog/products/${encodeURIComponent(
-    idOrCode
-  )}/features`;
-  const res = await fetch(url, {
-    headers: {
-      Accept: "application/json",
-      "X-CLIENT-KEY": WAREHOUSE_KEY, // pastikan di-set "dev-panel-key-abc"
-    },
-    cache: "no-store",
-  });
-  if (!res.ok) {
-    let msg = `${res.status} ${res.statusText}`;
-    try {
-      const j = await res.json();
-      msg = j.message || JSON.stringify(j);
-    } catch {}
-    throw new Error(msg);
-  }
-  return res.json(); // bentuk: { data: Feature[], ... } (dari AppGenerate proxy)
-}
-
-// (opsional) GET /api/catalog/products/{idOrCode}/menus
-export async function whListMenusByProduct(idOrCode: string) {
-  const base = WAREHOUSE_API.replace(/\/$/, "");
-  const url = `${base}/catalog/products/${encodeURIComponent(idOrCode)}/menus`;
-  const res = await fetch(url, {
-    headers: {
-      Accept: "application/json",
-      "X-CLIENT-KEY": WAREHOUSE_KEY,
-    },
-    cache: "no-store",
-  });
-  if (!res.ok) {
-    // tidak semua instalasi punya endpoint menus → biarkan diam2 kalau 404
-    if (res.status === 404) return { data: [] };
-    let msg = `${res.status} ${res.statusText}`;
-    try {
-      const j = await res.json();
-      msg = j.message || JSON.stringify(j);
-    } catch {}
-    throw new Error(msg);
-  }
-  return res.json(); // { data: Menu[] } atau bentuk serupa
 }
