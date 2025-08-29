@@ -364,3 +364,104 @@ export async function updateProductPanel(
   if (!res.ok) return parseError(res);
   return res.json();
 }
+/* ======================================================================
+   PACKAGES (Public + Admin)
+   ====================================================================== */
+
+// PUBLIC — list packages by product (reader untuk FE katalog)
+export async function panelListPackagesByProduct(
+  codeOrId: string,
+  includeInactive = false
+) {
+  const url = new URL(
+    `${API_URL}/catalog/products/${encodeURIComponent(codeOrId)}/packages`
+  );
+  if (includeInactive) url.searchParams.set("include_inactive", "1");
+  const res = await fetch(url.toString(), {
+    headers: { Accept: "application/json" },
+    cache: "no-store",
+  });
+  if (!res.ok) return parseError(res);
+  return res.json(); // { data: [...] }
+}
+
+// ADMIN — CRUD packages
+export async function adminListPackages(params?: {
+  product_code?: string;
+  product_id?: string;
+  status?: "active" | "inactive";
+  q?: string;
+  per_page?: number;
+}) {
+  const url = new URL(`${API_URL}/packages`);
+  if (params?.product_code)
+    url.searchParams.set("product_code", params.product_code);
+  if (params?.product_id) url.searchParams.set("product_id", params.product_id);
+  if (params?.status) url.searchParams.set("status", params.status);
+  if (params?.q) url.searchParams.set("q", params.q);
+  if (params?.per_page != null)
+    url.searchParams.set("per_page", String(params.per_page));
+
+  const res = await fetch(url.toString(), {
+    headers: authHeaders({ Accept: "application/json" }),
+    cache: "no-store",
+  });
+  if (!res.ok) return parseError(res);
+  return res.json(); // { data: rows|pagination }
+}
+
+export async function createPackage(payload: {
+  product_code: string;
+  product_id?: string | null;
+  name: string;
+  package_code?: string | null;
+  description?: string | null;
+  notes?: string | null;
+  status?: "active" | "inactive";
+  order_number?: number;
+}) {
+  const res = await fetch(`${API_URL}/packages`, {
+    method: "POST",
+    headers: authHeaders({
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    }),
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) return parseError(res);
+  return res.json();
+}
+
+export async function updatePackage(
+  id: number | string,
+  payload: Partial<{
+    product_code: string;
+    product_id?: string | null;
+    name: string;
+    package_code?: string | null;
+    description?: string | null;
+    notes?: string | null;
+    status?: "active" | "inactive";
+    order_number?: number;
+  }>
+) {
+  const res = await fetch(`${API_URL}/packages/${id}`, {
+    method: "PUT",
+    headers: authHeaders({
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    }),
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) return parseError(res);
+  return res.json();
+}
+
+export async function deletePackage(id: number | string) {
+  const res = await fetch(`${API_URL}/packages/${id}`, {
+    method: "DELETE",
+    headers: authHeaders({ Accept: "application/json" }),
+  });
+  if (!res.ok) return parseError(res);
+  return res.json();
+}

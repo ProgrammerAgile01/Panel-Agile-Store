@@ -8,6 +8,7 @@ use App\Http\Controllers\LevelPermissionController;
 use App\Http\Controllers\LevelUserController;
 use App\Http\Controllers\UserManagementController;
 use App\Http\Controllers\ProductFeatureController;
+use App\Http\Controllers\ProductPackageController;
 use App\Http\Controllers\ProductController;
 use App\Http\Middleware\PermissionMiddleware;
 use App\Http\Controllers\Catalog\ProductSyncController; 
@@ -132,7 +133,21 @@ Route::post('/catalog/products/sync',            [ProductSyncController::class, 
 Route::get ('/catalog/products/{codeOrId}/features',      [ProductFeatureController::class, 'listFeatures']); // ?refresh=1
 Route::post('/catalog/products/{codeOrId}/features/sync', [ProductFeatureController::class, 'syncFeatures']);
 Route::get ('/catalog/products/{codeOrId}/menus',         [ProductFeatureController::class, 'listMenus']);    // ?refresh=1
+/* ===================== Packages ===================== */
+// Public: daftar paket per produk (default hanya active)
+Route::get('/catalog/products/{codeOrId}/packages', [ProductPackageController::class, 'listByProduct']);
+
+// Admin (JWT): CRUD paket
+Route::middleware(['jwt.auth'])->group(function () {
+    Route::get   ('/packages',        [ProductPackageController::class, 'index']);   // ?product_code= & q=
+    Route::get   ('/packages/{id}',   [ProductPackageController::class, 'show']);
+    Route::post  ('/packages',        [ProductPackageController::class, 'store']);
+    Route::put   ('/packages/{id}',   [ProductPackageController::class, 'update']);
+    Route::delete('/packages/{id}',   [ProductPackageController::class, 'destroy']);
+});
 /*
+
+
 |--------------------------------------------------------------------------
 | DIAGNOSTIC (opsional)
 |--------------------------------------------------------------------------
