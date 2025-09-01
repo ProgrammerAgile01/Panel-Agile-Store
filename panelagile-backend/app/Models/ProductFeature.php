@@ -37,4 +37,16 @@ class ProductFeature extends Model
             'price_addon' => 'float',   
         'synced_at'       => 'datetime',
     ];
+    
+    /* Relations */
+    public function product()
+    {
+        return $this->belongsTo(Product::class, 'product_code', 'product_code');
+    }
+
+    public function scopeForProduct($q, ?string $code)
+    {
+        if ($code) $q->where('product_code', $code);
+        return $q;
+    }
 }

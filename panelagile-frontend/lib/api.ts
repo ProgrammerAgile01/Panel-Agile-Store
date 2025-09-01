@@ -512,6 +512,195 @@ export async function deletePackage(id: number | string) {
   if (!res.ok) return parseError(res);
   return res.json();
 }
+// Matrix read
+export async function getPackageMatrix(
+  codeOrId: string,
+  type: "features" | "menus" | "both" = "both"
+) {
+  const url = new URL(
+    `${API_URL}/catalog/products/${encodeURIComponent(codeOrId)}/matrix`
+  );
+  if (type) url.searchParams.set("type", type);
+  const res = await fetch(url.toString(), {
+    headers: { Accept: "application/json" },
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json(); // {data:{product,packages,features,menus,matrix}}
+}
+
+// Bulk save
+export async function savePackageMatrix(
+  codeOrId: string,
+  changes: Array<{
+    item_type: "feature" | "menu";
+    item_id: string;
+    package_id: number;
+    enabled: boolean;
+  }>
+) {
+  const res = await fetch(
+    `${API_URL}/catalog/products/${encodeURIComponent(codeOrId)}/matrix/bulk`,
+    {
+      method: "POST",
+      headers: authHeaders({
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      }),
+      body: JSON.stringify({ changes }),
+    }
+  );
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+// Toggle one cell
+export async function togglePackageMatrixCell(
+  codeOrId: string,
+  payload: {
+    item_type: "feature" | "menu";
+    item_id: string;
+    package_id: number;
+    enabled: boolean;
+  }
+) {
+  const res = await fetch(
+    `${API_URL}/catalog/products/${encodeURIComponent(codeOrId)}/matrix/toggle`,
+    {
+      method: "PATCH",
+      headers: authHeaders({
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      }),
+      body: JSON.stringify(payload),
+    }
+  );
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+// ========= MATRIX PACKAGE (READ/WRITE) ========
+
+// READ agregat untuk Matrix (public)
+export async function fetchMatrixByProduct(codeOrId: string): Promise<{
+  data: {
+    product: any;
+    packages: Array<{
+      id: number | string;
+      product_id: number | string;
+      product_code: string;
+      package_code?: string;
+      name: string;
+      description?: string | null;
+      status: "active" | "inactive";
+      notes?: string | null;
+      order_number?: number | null;
+    }>;
+    features: Array<{
+      id: string;
+      product_code: string;
+      type: "FEATURE" | string;
+      code: string;
+      name: string;
+      description?: string | null;
+      module?: string | null;
+      price_addon?: number | null;
+      is_active?: boolean;
+      order_number?: number | null;
+    }>;
+    menus: Array<{
+      id: number | string;
+      product_code: string;
+      type: "menu";
+      code: string;
+      name: string;
+      description?: string | null;
+      module?: string | null;
+      is_active?: boolean;
+      order_number?: number | null;
+    }>;
+    matrix: Array<{
+      item_type: "feature" | "menu";
+      item_id: string;
+      package_id: number | string;
+      enabled: boolean;
+    }>;
+  };
+}> {
+  const url = `${API_URL}/catalog/products/${encodeURIComponent(
+    codeOrId
+  )}/matrix`;
+
+  const res = await fetch(url, {
+    headers: { Accept: "application/json" },
+    cache: "no-store",
+  });
+
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    throw new Error(txt || `Failed to load matrix (${res.status})`);
+  }
+  return res.json();
+}
+
+// WRITE bulk (JWT)
+export async function saveMatrixBulkAPI(
+  codeOrId: string,
+  changes: Array<{
+    item_type: "feature" | "menu";
+    item_id: string;
+    package_id: number | string;
+    enabled: boolean;
+  }>
+) {
+  const url = `${API_URL}/catalog/products/${encodeURIComponent(
+    codeOrId
+  )}/matrix/bulk`;
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: authHeaders({
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    }),
+    body: JSON.stringify({ changes }),
+  });
+
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    throw new Error(txt || `Failed to save matrix (${res.status})`);
+  }
+  return res.json();
+}
+
+// WRITE toggle (JWT)
+export async function toggleMatrixCellAPI(
+  codeOrId: string,
+  payload: {
+    item_type: "feature" | "menu";
+    item_id: string;
+    package_id: number | string;
+    enabled: boolean;
+  }
+) {
+  const url = `${API_URL}/catalog/products/${encodeURIComponent(
+    codeOrId
+  )}/matrix/toggle`;
+
+  const res = await fetch(url, {
+    method: "PATCH", // <— cocok dengan controller
+    headers: authHeaders({
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    }),
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    throw new Error(txt || `Failed to toggle cell (${res.status})`);
+  }
+  return res.json();
+}
 
 /* ======================================================================
    DURATIONS (CRUD)

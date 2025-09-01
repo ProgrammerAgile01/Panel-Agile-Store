@@ -9,6 +9,7 @@ use App\Http\Controllers\LevelUserController;
 use App\Http\Controllers\UserManagementController;
 use App\Http\Controllers\ProductFeatureController;
 use App\Http\Controllers\ProductPackageController;
+use App\Http\Controllers\PackageMatrixController;
 use App\Http\Controllers\DurationController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\PricelistController;
@@ -144,19 +145,28 @@ Route::middleware(['auth:api'])->group(function () {
     );
 });
 
-/* ===================== Packages ===================== */
-// Public: daftar paket per produk (default hanya active)
+/* ===================== Packages (Public + Admin) ===================== */
+// PUBLIC — list packages for a product (used by FE)
 Route::get('/catalog/products/{codeOrId}/packages', [ProductPackageController::class, 'listByProduct']);
+// READ (public)
+Route::get('/catalog/products/{codeOrId}/matrix', [PackageMatrixController::class, 'index']);
 
-// Admin (JWT): CRUD paket
+// WRITE (JWT)
 Route::middleware(['jwt.auth'])->group(function () {
-    Route::get   ('/packages',        [ProductPackageController::class, 'index']);   // ?product_code= & q=
+    Route::post ('/catalog/products/{codeOrId}/matrix/bulk',   [PackageMatrixController::class, 'bulkUpsert']);
+    Route::patch('/catalog/products/{codeOrId}/matrix/toggle', [PackageMatrixController::class, 'toggle']);
+});
+Route::middleware(['jwt.auth'])->group(function () {
+    Route::post ('/catalog/products/{codeOrId}/matrix/bulk',   [ProductPackageController::class, 'saveMatrixBulk']);
+    Route::patch('/catalog/products/{codeOrId}/matrix/toggle', [ProductPackageController::class, 'toggleCell']);
+
+    // Admin CRUD paket (sudah ada)
+    Route::get   ('/packages',        [ProductPackageController::class, 'index']);
     Route::get   ('/packages/{id}',   [ProductPackageController::class, 'show']);
     Route::post  ('/packages',        [ProductPackageController::class, 'store']);
     Route::put   ('/packages/{id}',   [ProductPackageController::class, 'update']);
     Route::delete('/packages/{id}',   [ProductPackageController::class, 'destroy']);
 });
-
 /* ===================== Duration ===================== */
 Route::middleware('jwt.auth')->group(function () {
     Route::get('/durations', [DurationController::class, 'index']);

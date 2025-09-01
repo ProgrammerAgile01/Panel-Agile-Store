@@ -20,7 +20,7 @@ import {
   Search,
   Save,
   Plus,
-  Menu,
+  Menu as MenuIcon,
   Grid3X3,
   MessageSquare,
   BarChart3,
@@ -45,225 +45,68 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
+// === API hooks ===
+import {
+  listCatalogProductsSlim,
+  fetchMatrixByProduct,
+  saveMatrixBulkAPI,
+  toggleMatrixCellAPI,
+} from "@/lib/api";
+
+// ===== Types (FE internal) =====
 interface Product {
   id: string;
   name: string;
   description: string;
-  icon: any;
   status: "active" | "inactive";
-  packages: Package[];
-  features: Feature[];
+  product_code: string;
 }
 
 interface Package {
-  id: string;
+  id: string | number;
   name: string;
-  status: "active" | "archived";
-  price: number;
+  status: "active" | "inactive";
+  description?: string;
 }
 
 interface Feature {
-  id: string;
+  id: string; // feature: pakai code/id; menu: pakai id
   name: string;
   module: string;
   type: "feature" | "menu";
   icon: any;
   description?: string;
   dependencies?: string[];
-  subpath?: string;
+  subpath?: string; // khusus menu
 }
 
 interface MatrixCell {
   enabled: boolean;
   isDraft?: boolean;
 }
-
-interface BulkAction {
-  type: "enable" | "disable" | "rule";
-  featureIds: string[];
-  packageIds?: string[];
-  rule?: string;
-}
-
-// Sample data matching specifications
-const mockProducts: Product[] = [
-  {
-    id: "rentvix-pro",
-    name: "RentVix Pro",
-    description: "Complete rental management system",
-    icon: PackageIcon,
-    status: "active",
-    packages: [
-      { id: "starter", name: "Starter", status: "active", price: 29 },
-      { id: "medium", name: "Medium", status: "active", price: 79 },
-      {
-        id: "professional",
-        name: "Professional",
-        status: "active",
-        price: 149,
-      },
-    ],
-    features: [
-      // Communication Features
-      {
-        id: "whatsapp",
-        name: "Send WhatsApp",
-        module: "Communication",
-        type: "feature",
-        icon: MessageSquare,
-        description: "Send WhatsApp messages to customers",
-      },
-      {
-        id: "email",
-        name: "Send Email",
-        module: "Communication",
-        type: "feature",
-        icon: Mail,
-        description: "Send email notifications",
-        dependencies: ["email-template"],
-      },
-      {
-        id: "email-template",
-        name: "Email Template",
-        module: "Communication",
-        type: "feature",
-        icon: FileText,
-        description: "Email template management",
-      },
-
-      // Reporting Features
-      {
-        id: "export-excel",
-        name: "Export Excel",
-        module: "Reporting",
-        type: "feature",
-        icon: FileText,
-        description: "Export data to Excel format",
-      },
-
-      // Analytics Features
-      {
-        id: "dashboard-kpi",
-        name: "Dashboard KPI",
-        module: "Analytics",
-        type: "feature",
-        icon: BarChart3,
-        description: "Key performance indicators dashboard",
-      },
-
-      // Automation Features
-      {
-        id: "reminder-notifications",
-        name: "Reminder Notifications",
-        module: "Automation",
-        type: "feature",
-        icon: Bell,
-        description: "Automated reminder system",
-      },
-
-      // Finance Menus
-      {
-        id: "keuangan",
-        name: "Keuangan",
-        module: "Finance",
-        type: "menu",
-        icon: DollarSign,
-        description: "Financial management menu",
-      },
-      {
-        id: "laba-rugi",
-        name: "Laba Rugi",
-        module: "Finance",
-        type: "menu",
-        icon: BarChart3,
-        description: "Profit & Loss reports",
-        subpath: "Finance › Laba Rugi",
-      },
-
-      // Booking Menus
-      {
-        id: "order",
-        name: "Order",
-        module: "Booking",
-        type: "menu",
-        icon: Calendar,
-        description: "Order management menu",
-      },
-      {
-        id: "jadwal",
-        name: "Jadwal",
-        module: "Booking",
-        type: "menu",
-        icon: Clock,
-        description: "Schedule management menu",
-      },
-
-      // Vehicle Menus
-      {
-        id: "data-kendaraan",
-        name: "Data Kendaraan",
-        module: "Kendaraan",
-        type: "menu",
-        icon: PackageIcon,
-        description: "Vehicle data management",
-      },
-    ],
-  },
-];
-
-// Matrix data matching sample specifications
-const initialMatrix: Record<string, Record<string, MatrixCell>> = {
-  "rentvix-pro": {
-    "whatsapp-starter": { enabled: false },
-    "whatsapp-medium": { enabled: false },
-    "whatsapp-professional": { enabled: true },
-
-    "email-starter": { enabled: false },
-    "email-medium": { enabled: true },
-    "email-professional": { enabled: true },
-
-    "email-template-starter": { enabled: false },
-    "email-template-medium": { enabled: true },
-    "email-template-professional": { enabled: true },
-
-    "export-excel-starter": { enabled: true },
-    "export-excel-medium": { enabled: true },
-    "export-excel-professional": { enabled: true },
-
-    "dashboard-kpi-starter": { enabled: true },
-    "dashboard-kpi-medium": { enabled: true },
-    "dashboard-kpi-professional": { enabled: true },
-
-    "reminder-notifications-starter": { enabled: false },
-    "reminder-notifications-medium": { enabled: true },
-    "reminder-notifications-professional": { enabled: true },
-
-    "keuangan-starter": { enabled: false },
-    "keuangan-medium": { enabled: true },
-    "keuangan-professional": { enabled: true },
-
-    "laba-rugi-starter": { enabled: false },
-    "laba-rugi-medium": { enabled: true },
-    "laba-rugi-professional": { enabled: true },
-
-    "order-starter": { enabled: true },
-    "order-medium": { enabled: true },
-    "order-professional": { enabled: true },
-
-    "jadwal-starter": { enabled: true },
-    "jadwal-medium": { enabled: true },
-    "jadwal-professional": { enabled: true },
-
-    "data-kendaraan-starter": { enabled: false },
-    "data-kendaraan-medium": { enabled: true },
-    "data-kendaraan-professional": { enabled: true },
-  },
+type ChangePayload = {
+  item_type: "feature" | "menu";
+  item_id: string;
+  package_id: number | string;
+  enabled: boolean;
 };
 
+// ====== Komponen ======
 export function MatrixPackageSplit() {
-  const [selectedProduct, setSelectedProduct] = useState<Product>(
-    mockProducts[0]
-  );
+  // ====== STATE DATA ======
+  const [products, setProducts] = useState<Product[]>([]);
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+
+  const [packages, setPackages] = useState<Package[]>([]);
+  const [featuresAndMenus, setFeaturesAndMenus] = useState<Feature[]>([]);
+  const [matrixData, setMatrixData] = useState<
+    Record<
+      string /* product_code */,
+      Record<string /* featureId-pkgId */, MatrixCell>
+    >
+  >({});
+
+  // ====== UI states ======
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -271,10 +114,7 @@ export function MatrixPackageSplit() {
   const [filterMode, setFilterMode] = useState("all");
   const [groupByModule, setGroupByModule] = useState(true);
   const [showOnlyDifferences, setShowOnlyDifferences] = useState(false);
-  const [compactDensity, setCompactDensity] = useState(false);
-  const [matrixData, setMatrixData] = useState(initialMatrix);
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [detailDrawerOpen, setDetailDrawerOpen] = useState(false);
   const [selectedFeature, setSelectedFeature] = useState<Feature | null>(null);
@@ -283,7 +123,6 @@ export function MatrixPackageSplit() {
   const [printOptions, setPrintOptions] = useState({
     orientation: "portrait" as "portrait" | "landscape",
     paper: "A4" as "A4" | "Letter",
-    scale: 100,
     showLegend: true,
     includeGroups: true,
     compactRows: false,
@@ -293,18 +132,127 @@ export function MatrixPackageSplit() {
     "features" | "menus" | "both"
   >("features");
 
+  // ====== Debounce search ======
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedSearch(searchTerm);
-    }, 250);
-    return () => clearTimeout(timer);
+    const t = setTimeout(() => setDebouncedSearch(searchTerm), 250);
+    return () => clearTimeout(t);
   }, [searchTerm]);
 
-  const hasChanges = Object.values(matrixData[selectedProduct.id] || {}).some(
-    (cell) => cell.isDraft
-  );
+  // ====== Load sidebar products ======
+  useEffect(() => {
+    (async () => {
+      try {
+        const rows = await listCatalogProductsSlim();
+        const norm: Product[] = rows.map((r: any) => ({
+          id: String(r.id),
+          name: r.name,
+          description: r.description,
+          status: r.status,
+          product_code: r.product_code,
+        }));
+        setProducts(norm);
+        if (norm.length) setSelectedProduct(norm[0]);
+      } catch (e: any) {
+        toast({
+          title: "Gagal memuat produk",
+          description: e?.message || "Terjadi kesalahan saat load products",
+          variant: "destructive",
+        });
+      }
+    })();
+  }, []);
 
-  const filteredFeatures = selectedProduct.features.filter((feature) => {
+  // ====== Load matrix + fitur + menu ======
+  useEffect(() => {
+    if (!selectedProduct?.product_code) return;
+    (async () => {
+      try {
+        const { data } = await fetchMatrixByProduct(
+          selectedProduct.product_code
+        );
+
+        // packages
+        const pkgs: Package[] = (data.packages || []).map((p: any) => ({
+          id: String(p.id),
+          name: String(p.name ?? "Package"),
+          description: String(p.description ?? ""),
+          status:
+            String(p.status ?? "active").toLowerCase() === "inactive"
+              ? "inactive"
+              : "active",
+        }));
+        setPackages(pkgs);
+
+        // features + menus
+        const fts: Feature[] = [
+          ...((data.features || []).map((f: any) => ({
+            id: String(f.feature_code ?? f.code ?? f.id),
+            name: String(f.name ?? "Feature"),
+            module: String(f.module ?? f.module_name ?? "General"),
+            type: "feature" as const,
+            icon: resolveIcon("feature", f.name),
+            description: f.description ?? "",
+          })) as Feature[]),
+          ...((data.menus || []).map((m: any) => ({
+            id: String(m.id),
+            name: String(m.title ?? m.name ?? "Menu"),
+            module: "", // menu tidak pakai module
+            type: "menu" as const,
+            icon: resolveIcon("menu", m.name || m.title),
+            description: m.note ?? m.description ?? "",
+            subpath: m.route_path ?? m.subpath ?? "",
+          })) as Feature[]),
+        ];
+        setFeaturesAndMenus(fts);
+
+        // matrix map
+        const rows: Record<string, MatrixCell> = {};
+        (data.matrix || []).forEach((r: any) => {
+          const itemId = String(r.item_id);
+          const pkgId = String(r.package_id);
+          const key = `${itemId}-${pkgId}`;
+          rows[key] = { enabled: !!r.enabled, isDraft: false };
+        });
+
+        setMatrixData((prev) => ({
+          ...prev,
+          [selectedProduct.product_code]: rows,
+        }));
+      } catch (e: any) {
+        toast({
+          title: "Gagal memuat matrix",
+          description: e?.message || "Terjadi kesalahan saat load matrix",
+          variant: "destructive",
+        });
+      }
+    })();
+  }, [selectedProduct?.product_code]);
+
+  // util icon ringan
+  function resolveIcon(kind: "feature" | "menu", name?: string) {
+    if (kind === "menu") {
+      if ((name || "").toLowerCase().includes("order")) return Calendar;
+      if ((name || "").toLowerCase().includes("jadwal")) return Clock;
+      if ((name || "").toLowerCase().includes("keuangan")) return DollarSign;
+      return MenuIcon;
+    }
+    // feature
+    if ((name || "").toLowerCase().includes("email")) return Mail;
+    if ((name || "").toLowerCase().includes("whatsapp")) return MessageSquare;
+    if ((name || "").toLowerCase().includes("export")) return FileText;
+    if ((name || "").toLowerCase().includes("dashboard")) return BarChart3;
+    if ((name || "").toLowerCase().includes("reminder")) return Bell;
+    return PackageIcon;
+  }
+
+  // ====== Derived ======
+  const hasChanges = selectedProduct
+    ? Object.values(matrixData[selectedProduct.product_code] || {}).some(
+        (cell) => cell.isDraft
+      )
+    : false;
+
+  const filteredFeatures = featuresAndMenus.filter((feature) => {
     if (viewMode === "features" && feature.type !== "feature") return false;
     if (viewMode === "menus" && feature.type !== "menu") return false;
 
@@ -312,214 +260,360 @@ export function MatrixPackageSplit() {
       const searchLower = debouncedSearch.toLowerCase();
       return (
         feature.name.toLowerCase().includes(searchLower) ||
-        feature.module.toLowerCase().includes(searchLower)
+        feature.module.toLowerCase().includes(searchLower) ||
+        (feature.subpath || "").toLowerCase().includes(searchLower)
       );
     }
-
     return true;
   });
 
-  const filteredPackages = selectedProduct.packages.filter((pkg) => {
+  const filteredPackages = packages.filter((pkg) => {
     if (filterMode === "active" && pkg.status !== "active") return false;
-    if (filterMode === "archived" && pkg.status !== "archived") return false;
+    if (filterMode === "archived" && pkg.status !== "inactive") return false;
     return true;
   });
 
   const groupedFeatures = groupByModule
     ? filteredFeatures.reduce((acc, feature) => {
-        if (!acc[feature.module]) acc[feature.module] = [];
-        acc[feature.module].push(feature);
+        const mod = feature.module || "General";
+        if (!acc[mod]) acc[mod] = [];
+        acc[mod].push(feature);
         return acc;
       }, {} as Record<string, Feature[]>)
-    : { "All Features": filteredFeatures };
+    : { All: filteredFeatures };
 
   const finalGroupedFeatures = showOnlyDifferences
     ? Object.entries(groupedFeatures).reduce((acc, [module, features]) => {
-        const filteredFeatures = features.filter((feature) => {
-          const values = filteredPackages.map(
-            (pkg) =>
-              matrixData[selectedProduct.id]?.[`${feature.id}-${pkg.id}`]
-                ?.enabled || false
-          );
-          return !values.every((val) => val === values[0]);
+        const fx = features.filter((feature) => {
+          const values = filteredPackages.map((pkg) => {
+            const key = `${feature.id}-${pkg.id}`;
+            return (
+              matrixData[selectedProduct!.product_code]?.[key]?.enabled || false
+            );
+          });
+          return !values.every((v) => v === values[0]);
         });
-        if (filteredFeatures.length > 0) {
-          acc[module] = filteredFeatures;
-        }
+        if (fx.length) acc[module] = fx;
         return acc;
       }, {} as Record<string, Feature[]>)
     : groupedFeatures;
 
-  const toggleFeature = useCallback(
-    (featureId: string, packageId: string) => {
+  // ====== Mutators ======
+  const toggleCell = useCallback(
+    async (featureId: string, packageId: string | number) => {
+      if (!selectedProduct) return;
+      const pcode = selectedProduct.product_code;
       const key = `${featureId}-${packageId}`;
-      const productKey = selectedProduct.id;
+      const currEnabled = matrixData[pcode]?.[key]?.enabled ?? false;
 
+      // optimistik update
       setMatrixData((prev) => ({
         ...prev,
-        [productKey]: {
-          ...prev[productKey],
-          [key]: {
-            enabled: !prev[productKey]?.[key]?.enabled,
-            isDraft: true,
+        [pcode]: {
+          ...prev[pcode],
+          [key]: { enabled: !currEnabled, isDraft: true },
+        },
+      }));
+
+      try {
+        await toggleMatrixCellAPI(pcode, {
+          item_type: viewMode === "menus" ? "menu" : "feature",
+          item_id: featureId,
+          package_id: packageId,
+          enabled: !currEnabled,
+        });
+      } catch (e: any) {
+        // rollback
+        setMatrixData((prev) => ({
+          ...prev,
+          [pcode]: {
+            ...prev[pcode],
+            [key]: { enabled: currEnabled, isDraft: false },
           },
+        }));
+        toast({
+          title: "Toggle gagal",
+          description: e?.message || "Gagal mengubah sel",
+          variant: "destructive",
+        });
+      }
+    },
+    [selectedProduct, matrixData, viewMode]
+  );
+
+  const toggleFeature = useCallback(
+    (featureId: string, packageId: string | number) => {
+      if (!selectedProduct) return;
+      const pcode = selectedProduct.product_code;
+      const key = `${featureId}-${packageId}`;
+      const curr = matrixData[pcode]?.[key]?.enabled ?? false;
+      setMatrixData((prev) => ({
+        ...prev,
+        [pcode]: {
+          ...prev[pcode],
+          [key]: { enabled: !curr, isDraft: true },
         },
       }));
     },
-    [selectedProduct.id]
-  );
-
-  const toggleEntireRow = useCallback(
-    (featureId: string, enabled: boolean) => {
-      const productKey = selectedProduct.id;
-      const updates: Record<string, MatrixCell> = {};
-
-      filteredPackages.forEach((pkg) => {
-        const key = `${featureId}-${pkg.id}`;
-        updates[key] = { enabled, isDraft: true };
-      });
-
-      setMatrixData((prev) => ({
-        ...prev,
-        [productKey]: { ...prev[productKey], ...updates },
-      }));
-    },
-    [selectedProduct.id, filteredPackages]
+    [selectedProduct, matrixData]
   );
 
   const toggleEntireColumn = useCallback(
-    (packageId: string, enabled: boolean) => {
-      const productKey = selectedProduct.id;
+    (packageId: string | number, enabled: boolean) => {
+      if (!selectedProduct) return;
+      const pcode = selectedProduct.product_code;
       const updates: Record<string, MatrixCell> = {};
-
       filteredFeatures.forEach((feature) => {
         const key = `${feature.id}-${packageId}`;
         updates[key] = { enabled, isDraft: true };
       });
-
       setMatrixData((prev) => ({
         ...prev,
-        [productKey]: { ...prev[productKey], ...updates },
+        [pcode]: { ...prev[pcode], ...updates },
       }));
     },
-    [selectedProduct.id, filteredFeatures]
+    [selectedProduct, filteredFeatures]
   );
 
   const applyBulkAction = useCallback(
-    (action: BulkAction) => {
-      const productKey = selectedProduct.id;
+    (action: {
+      type: "enable" | "disable";
+      featureIds: string[];
+      packageIds?: Array<string | number>;
+    }) => {
+      if (!selectedProduct) return;
+      const pcode = selectedProduct.product_code;
       const updates: Record<string, MatrixCell> = {};
-
-      action.featureIds.forEach((featureId) => {
-        const packages = action.packageIds || filteredPackages.map((p) => p.id);
-        packages.forEach((packageId) => {
-          const key = `${featureId}-${packageId}`;
-          updates[key] = {
-            enabled: action.type === "enable",
-            isDraft: true,
-          };
+      action.featureIds.forEach((fid) => {
+        const pkgIds = action.packageIds || filteredPackages.map((p) => p.id);
+        pkgIds.forEach((pid) => {
+          const key = `${fid}-${pid}`;
+          updates[key] = { enabled: action.type === "enable", isDraft: true };
         });
       });
-
       setMatrixData((prev) => ({
         ...prev,
-        [productKey]: { ...prev[productKey], ...updates },
+        [pcode]: { ...prev[pcode], ...updates },
       }));
-
       setSelectedRows([]);
       toast({
         title: "Bulk action applied",
         description: `${action.type === "enable" ? "Enabled" : "Disabled"} ${
           action.featureIds.length
-        } features`,
+        } rows`,
       });
     },
-    [selectedProduct.id, filteredPackages]
+    [selectedProduct, filteredPackages]
   );
 
   const saveChanges = useCallback(async () => {
+    if (!selectedProduct) return;
+    const pcode = selectedProduct.product_code;
+    const rows = matrixData[pcode] || {};
+
+    const changes: ChangePayload[] = Object.entries(rows)
+      .filter(([, v]) => v.isDraft)
+      .map(([k, v]) => {
+        const [itemId, pkgId] = k.split("-");
+        const item = featuresAndMenus.find((f) => f.id === itemId);
+        const item_type: "feature" | "menu" =
+          item?.type === "menu" ? "menu" : "feature";
+        return {
+          item_type,
+          item_id: itemId,
+          package_id: isNaN(Number(pkgId)) ? pkgId : Number(pkgId),
+          enabled: !!v.enabled,
+        };
+      });
+
+    if (changes.length === 0) {
+      toast({
+        title: "Tidak ada perubahan",
+        description: "Semua sudah tersimpan.",
+      });
+      return;
+    }
+
     setIsSaving(true);
     try {
-      // Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-
-      // Remove draft flags
-      const productKey = selectedProduct.id;
-      const cleanedData = Object.entries(matrixData[productKey] || {}).reduce(
-        (acc, [key, cell]) => {
-          acc[key] = { enabled: cell.enabled, isDraft: false };
-          return acc;
-        },
-        {} as Record<string, MatrixCell>
-      );
-
-      setMatrixData((prev) => ({
-        ...prev,
-        [productKey]: cleanedData,
-      }));
-
+      await saveMatrixBulkAPI(pcode, changes);
+      // clear draft flag
+      const cleaned: Record<string, MatrixCell> = {};
+      Object.entries(rows).forEach(([key, cell]) => {
+        cleaned[key] = { enabled: cell.enabled, isDraft: false };
+      });
+      setMatrixData((prev) => ({ ...prev, [pcode]: cleaned }));
       toast({
         title: "Matrix saved",
-        description: "Feature matrix has been successfully updated",
+        description: "Perubahan berhasil disimpan.",
       });
-    } catch (error) {
+    } catch (e: any) {
       toast({
-        title: "Save failed",
-        description: "Failed to save matrix changes. Please try again.",
+        title: "Gagal menyimpan",
+        description: e?.message || "Periksa koneksi/JWT Anda.",
         variant: "destructive",
       });
     } finally {
       setIsSaving(false);
     }
-  }, [selectedProduct.id, matrixData]);
-
-  const exportCSV = useCallback(() => {
-    const rows = [["type", "group", "name", "package", "enabled"]];
-
-    Object.entries(finalGroupedFeatures).forEach(([module, features]) => {
-      features.forEach((feature) => {
-        filteredPackages.forEach((pkg) => {
-          const key = `${feature.id}-${pkg.id}`;
-          const enabled = matrixData[selectedProduct.id]?.[key]?.enabled
-            ? "1"
-            : "0";
-          rows.push([feature.type, module, feature.name, pkg.name, enabled]);
-        });
-      });
-    });
-
-    const csvContent = rows.map((row) => row.join(",")).join("\n");
-    const blob = new Blob([csvContent], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${selectedProduct.name}-matrix.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-
-    toast({
-      title: "CSV exported",
-      description: "Matrix data has been exported successfully",
-    });
-  }, [selectedProduct, finalGroupedFeatures, filteredPackages, matrixData]);
+  }, [selectedProduct, matrixData, featuresAndMenus]);
 
   const checkDependencies = useCallback(
-    (feature: Feature): boolean => {
-      if (!feature.dependencies) return true;
-
-      return feature.dependencies.every((depId) => {
-        const depFeature = selectedProduct.features.find((f) => f.id === depId);
-        if (!depFeature) return true;
-
-        return filteredPackages.some((pkg) => {
-          const key = `${depId}-${pkg.id}`;
-          return matrixData[selectedProduct.id]?.[key]?.enabled;
-        });
-      });
+    (feature: Feature) => {
+      if (!feature.dependencies || !selectedProduct) return true;
+      const pcode = selectedProduct.product_code;
+      return feature.dependencies.every((depId) =>
+        packages.some(
+          (pkg) => matrixData[pcode]?.[`${depId}-${pkg.id}`]?.enabled
+        )
+      );
     },
-    [selectedProduct, filteredPackages, matrixData]
+    [selectedProduct, packages, matrixData]
   );
 
+  // ====== Preview Helpers (BARU) ======
+  // Ambil item untuk preview (tidak tergantung viewMode)
+  const getPreviewItems = useCallback(
+    (kind: "features" | "menus") => {
+      const base = featuresAndMenus.filter((f) =>
+        kind === "features" ? f.type === "feature" : f.type === "menu"
+      );
+      if (debouncedSearch) {
+        const q = debouncedSearch.toLowerCase();
+        return base.filter(
+          (f) =>
+            f.name.toLowerCase().includes(q) ||
+            (f.module || "").toLowerCase().includes(q) ||
+            (f.subpath || "").toLowerCase().includes(q)
+        );
+      }
+      return base;
+    },
+    [featuresAndMenus, debouncedSearch]
+  );
+
+  // Cetak tabel untuk print/preview (BARU)
+  const renderPrintTable = (items: Feature[]) => {
+    if (!selectedProduct) return null;
+
+    const isMenusTable = items.every((it) => it.type === "menu");
+    const leftHeader = isMenusTable ? "Menus" : "Features";
+
+    // Grouping hanya untuk FEATURES
+    const grouped: Record<string, Feature[]> =
+      isMenusTable || !groupByModule
+        ? { All: items }
+        : items.reduce((acc, f) => {
+            const mod = f.module || "General";
+            (acc[mod] ||= []).push(f);
+            return acc;
+          }, {} as Record<string, Feature[]>);
+
+    return (
+      <table className="w-full border-collapse border border-gray-300">
+        <thead>
+          <tr className="bg-gray-100 dark:bg-gray-800">
+            <th className="border border-gray-300 p-3 text-left font-semibold sticky left-0 bg-gray-100 dark:bg-gray-800">
+              {leftHeader}
+            </th>
+            {filteredPackages.map((pkg) => (
+              <th
+                key={String(pkg.id)}
+                className="border border-gray-300 p-3 text-center font-semibold min-w-[120px]"
+              >
+                {pkg.name}
+              </th>
+            ))}
+          </tr>
+        </thead>
+
+        <tbody>
+          {Object.entries(grouped).map(([groupName, rows]) => (
+            <React.Fragment key={groupName}>
+              {/* Group header khusus Features */}
+              {!isMenusTable && printOptions.includeGroups && (
+                <tr className="bg-gray-50 dark:bg-gray-700 break-inside-avoid">
+                  <td
+                    colSpan={filteredPackages.length + 1}
+                    className="border border-gray-300 p-2 font-medium"
+                  >
+                    📁 {groupName}
+                  </td>
+                </tr>
+              )}
+
+              {rows.map((item) => (
+                <tr
+                  key={item.id}
+                  className={`${
+                    printOptions.compactRows ? "h-8" : "h-12"
+                  } break-inside-avoid`}
+                >
+                  <td className="border border-gray-300 p-3 sticky left-0 bg-white dark:bg-gray-900">
+                    <div className="flex items-start gap-2">
+                      <Badge variant="outline" className="text-xs">
+                        {item.type}
+                      </Badge>
+                      <div className="min-w-0">
+                        <div className="font-medium truncate">{item.name}</div>
+
+                        {item.description && (
+                          <div className="text-xs text-gray-500 mt-1">
+                            {item.description}
+                          </div>
+                        )}
+
+                        {isMenusTable && item.subpath && (
+                          <div className="text-[11px] text-gray-500 mt-0.5 break-all">
+                            {item.subpath}
+                          </div>
+                        )}
+
+                        {!isMenusTable && (item.module || "") && (
+                          <div className="mt-1">
+                            <Badge
+                              variant="outline"
+                              className="text-[10px] px-1.5 py-0.5 rounded"
+                            >
+                              {item.module || "General"}
+                            </Badge>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </td>
+
+                  {filteredPackages.map((pkg) => {
+                    const enabled =
+                      matrixData[selectedProduct.product_code]?.[
+                        `${item.id}-${pkg.id}`
+                      ]?.enabled || false;
+
+                    return (
+                      <td
+                        key={String(pkg.id)}
+                        className="border border-gray-300 p-3 text-center"
+                      >
+                        <div className="flex items-center justify-center">
+                          {enabled ? (
+                            <span className="text-green-600 text-lg">✅</span>
+                          ) : (
+                            <span className="text-gray-400 text-lg">❌</span>
+                          )}
+                        </div>
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </React.Fragment>
+          ))}
+        </tbody>
+      </table>
+    );
+  };
+
+  // ====== Preview/Print ======
   const openPreview = () => {
     if (hasChanges) {
       if (confirm("You have unsaved changes. Save before preview?")) {
@@ -528,7 +622,6 @@ export function MatrixPackageSplit() {
     }
     setPreviewMode(true);
   };
-
   const printToPDF = () => {
     if (hasChanges) {
       if (confirm("You have unsaved changes. Save before printing?")) {
@@ -537,11 +630,19 @@ export function MatrixPackageSplit() {
     }
     window.print();
   };
+  const closePreview = () => setPreviewMode(false);
 
-  const closePreview = () => {
-    setPreviewMode(false);
-  };
+  // ====== RENDER utama ======
+  if (!selectedProduct) {
+    return (
+      <div className="p-6">
+        <Loader2 className="h-5 w-5 animate-spin inline-block mr-2" />
+        Loading products...
+      </div>
+    );
+  }
 
+  // Sidebar Produk
   const ProductList = () => (
     <div className="h-full flex flex-col bg-gradient-to-b from-slate-900 to-slate-800 dark:from-slate-950 dark:to-slate-900 backdrop-blur-xl border-r border-slate-700/50">
       <div className="p-4 border-b border-slate-700/50">
@@ -557,10 +658,9 @@ export function MatrixPackageSplit() {
       </div>
 
       <div className="flex-1 overflow-y-auto p-3 space-y-2">
-        {mockProducts.map((product) => {
-          const IconComponent = product.icon;
-          const isSelected = selectedProduct.id === product.id;
-
+        {products.map((product) => {
+          const IconComponent = PackageIcon;
+          const isSelected = selectedProduct?.id === product.id;
           return (
             <button
               key={product.id}
@@ -623,167 +723,15 @@ export function MatrixPackageSplit() {
     </div>
   );
 
-  const renderPrintTable = (features: Feature[]) => (
-    <table className="w-full border-collapse border border-gray-300">
-      <thead>
-        <tr className="bg-gray-100 dark:bg-gray-800">
-          <th className="border border-gray-300 p-3 text-left font-semibold sticky left-0 bg-gray-100 dark:bg-gray-800">
-            {previewShowMode === "features" ? "Features" : "Menus"}
-          </th>
-          {filteredPackages.map((pkg) => (
-            <th
-              key={pkg.id}
-              className="border border-gray-300 p-3 text-center font-semibold min-w-[120px]"
-            >
-              {pkg.name}
-            </th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {groupByModule
-          ? Object.entries(groupedFeatures).map(([module, features]) => (
-              <React.Fragment key={module}>
-                {printOptions.includeGroups && (
-                  <tr className="bg-gray-50 dark:bg-gray-700 break-inside-avoid">
-                    <td
-                      colSpan={filteredPackages.length + 1}
-                      className="border border-gray-300 p-2 font-medium text-gray-700 dark:text-gray-300"
-                    >
-                      📁 {module}
-                    </td>
-                  </tr>
-                )}
-                {features.map((feature) => (
-                  <tr
-                    key={feature.id}
-                    className={`${
-                      printOptions.compactRows ? "h-8" : "h-12"
-                    } break-inside-avoid`}
-                  >
-                    <td className="border border-gray-300 p-3 sticky left-0 bg-white dark:bg-gray-900">
-                      <div className="flex items-center gap-2">
-                        <Badge variant="outline" className="text-xs">
-                          {feature.type}
-                        </Badge>
-                        <span className="font-medium">{feature.name}</span>
-                      </div>
-                      {feature.description && (
-                        <div className="text-xs text-gray-500 mt-1">
-                          {feature.description}
-                        </div>
-                      )}
-                    </td>
-                    {filteredPackages.map((pkg) => {
-                      const isEnabled =
-                        matrixData[selectedProduct.id]?.[
-                          `${feature.id}-${pkg.id}`
-                        ]?.enabled;
-                      return (
-                        <td
-                          key={pkg.id}
-                          className="border border-gray-300 p-3 text-center"
-                        >
-                          <div className="flex items-center justify-center">
-                            {isEnabled ? (
-                              <span className="text-green-500 text-lg">✅</span>
-                            ) : (
-                              <span className="text-gray-400 text-lg">❌</span>
-                            )}
-                          </div>
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </React.Fragment>
-            ))
-          : features.map((feature) => (
-              <tr
-                key={feature.id}
-                className={`${
-                  printOptions.compactRows ? "h-8" : "h-12"
-                } break-inside-avoid`}
-              >
-                <td className="border border-gray-300 p-3 sticky left-0 bg-white dark:bg-gray-900">
-                  <div className="flex items-center gap-2">
-                    <Badge variant="outline" className="text-xs">
-                      {feature.type}
-                    </Badge>
-                    <span className="font-medium">{feature.name}</span>
-                  </div>
-                  {feature.description && (
-                    <div className="text-xs text-gray-500 mt-1">
-                      {feature.description}
-                    </div>
-                  )}
-                </td>
-                {filteredPackages.map((pkg) => {
-                  const isEnabled =
-                    matrixData[selectedProduct.id]?.[`${feature.id}-${pkg.id}`]
-                      ?.enabled;
-                  return (
-                    <td
-                      key={pkg.id}
-                      className="border border-gray-300 p-3 text-center"
-                    >
-                      <div className="flex items-center justify-center">
-                        {isEnabled ? (
-                          <span className="text-green-500 text-lg">✅</span>
-                        ) : (
-                          <span className="text-gray-400 text-lg">❌</span>
-                        )}
-                      </div>
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
-      </tbody>
-    </table>
-  );
-
-  const toggleCell = useCallback(
-    (featureId: string, packageId: string) => {
-      const key = `${featureId}-${packageId}`;
-      const productKey = selectedProduct.id;
-
-      setMatrixData((prev) => ({
-        ...prev,
-        [productKey]: {
-          ...prev[productKey],
-          [key]: {
-            enabled: !prev[productKey]?.[key]?.enabled,
-            isDraft: true,
-          },
-        },
-      }));
-    },
-    [selectedProduct.id]
-  );
-
   return (
     <TooltipProvider>
       <div className="h-full flex bg-background">
-        {/* Desktop Left Panel */}
+        {/* Left Panel */}
         <div className="hidden lg:block w-[260px] flex-shrink-0">
           <ProductList />
         </div>
 
-        {/* Mobile Drawer */}
-        {mobileDrawerOpen && (
-          <>
-            <div
-              className="fixed inset-0 bg-black/50 z-40 lg:hidden"
-              onClick={() => setMobileDrawerOpen(false)}
-            />
-            <div className="fixed left-0 top-0 bottom-0 w-[280px] z-50 lg:hidden">
-              <ProductList />
-            </div>
-          </>
-        )}
-
-        {/* Right Panel - Matrix Management */}
+        {/* Right Panel */}
         <div className="flex-1 flex flex-col min-w-0">
           {/* Header */}
           <div className="flex items-center justify-between p-4 border-b border-primary/20 bg-card/50 backdrop-blur-xl">
@@ -794,7 +742,7 @@ export function MatrixPackageSplit() {
                 className="lg:hidden"
                 onClick={() => setMobileDrawerOpen(true)}
               >
-                <Menu className="h-4 w-4" />
+                <MenuIcon className="h-4 w-4" />
               </Button>
               <div className="flex items-center gap-2">
                 <Grid3X3 className="h-5 w-5 text-primary" />
@@ -805,7 +753,7 @@ export function MatrixPackageSplit() {
             </div>
           </div>
 
-          {/* Enhanced Toolbar */}
+          {/* Toolbar */}
           <div className="flex items-center justify-between p-4 border-b border-primary/20 bg-card/30 gap-4">
             <div className="flex items-center gap-4 flex-wrap">
               {/* View Toggle */}
@@ -886,7 +834,7 @@ export function MatrixPackageSplit() {
                 )}
               </Button>
 
-              {/* Preview with Show dropdown */}
+              {/* Preview */}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline">
@@ -913,7 +861,7 @@ export function MatrixPackageSplit() {
                       openPreview();
                     }}
                   >
-                    <Menu className="h-4 w-4 mr-2" />
+                    <MenuIcon className="h-4 w-4 mr-2" />
                     Menus
                   </DropdownMenuItem>
                   <DropdownMenuItem
@@ -938,47 +886,6 @@ export function MatrixPackageSplit() {
             </div>
           </div>
 
-          {/* Bulk Actions Toolbar */}
-          {selectedRows.length > 0 && (
-            <div className="flex items-center justify-between p-3 bg-primary/10 border-b border-primary/20">
-              <span className="text-sm font-medium">
-                {selectedRows.length} rows selected
-              </span>
-              <div className="flex gap-2">
-                <Button
-                  size="sm"
-                  onClick={() =>
-                    applyBulkAction({
-                      type: "enable",
-                      featureIds: selectedRows,
-                    })
-                  }
-                >
-                  Enable in selected packages
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() =>
-                    applyBulkAction({
-                      type: "disable",
-                      featureIds: selectedRows,
-                    })
-                  }
-                >
-                  Disable in selected packages
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => setSelectedRows([])}
-                >
-                  Clear selection
-                </Button>
-              </div>
-            </div>
-          )}
-
           {/* Matrix Table */}
           <div className="flex-1 overflow-auto">
             {filteredPackages.length === 0 ? (
@@ -986,8 +893,7 @@ export function MatrixPackageSplit() {
                 <PackageIcon className="h-16 w-16 text-muted-foreground/50 mb-4" />
                 <h3 className="text-lg font-semibold mb-2">No packages yet</h3>
                 <p className="text-muted-foreground text-center max-w-md mb-4">
-                  Create packages first to manage the feature matrix — manage in
-                  Package Product.
+                  Create packages first to manage the feature & menu matrix.
                 </p>
                 <Button>
                   <ChevronRight className="h-4 w-4 mr-2" />
@@ -1001,10 +907,6 @@ export function MatrixPackageSplit() {
                 <p className="text-muted-foreground text-center max-w-md mb-4">
                   Load data in Features & Menus first.
                 </p>
-                <Button>
-                  <ChevronRight className="h-4 w-4 mr-2" />
-                  Go to Features & Menus
-                </Button>
               </div>
             ) : (
               <div className="overflow-auto">
@@ -1015,7 +917,8 @@ export function MatrixPackageSplit() {
                         <div className="flex items-center gap-2">
                           <Checkbox
                             checked={
-                              selectedRows.length === filteredFeatures.length
+                              selectedRows.length === filteredFeatures.length &&
+                              filteredFeatures.length > 0
                             }
                             onCheckedChange={(checked) => {
                               if (checked) {
@@ -1032,7 +935,7 @@ export function MatrixPackageSplit() {
                       </th>
                       {filteredPackages.map((pkg) => (
                         <th
-                          key={pkg.id}
+                          key={String(pkg.id)}
                           className="border border-slate-300 dark:border-slate-700 p-3 text-center font-semibold min-w-[120px]"
                         >
                           <div className="flex flex-col gap-1">
@@ -1056,7 +959,7 @@ export function MatrixPackageSplit() {
                               onClick={() => {
                                 const allEnabled = filteredFeatures.every(
                                   (feature) =>
-                                    matrixData[selectedProduct.id]?.[
+                                    matrixData[selectedProduct.product_code]?.[
                                       `${feature.id}-${pkg.id}`
                                     ]?.enabled
                                 );
@@ -1070,6 +973,7 @@ export function MatrixPackageSplit() {
                       ))}
                     </tr>
                   </thead>
+
                   <tbody>
                     {Object.entries(finalGroupedFeatures).map(
                       ([module, features]) => (
@@ -1084,14 +988,14 @@ export function MatrixPackageSplit() {
                               </td>
                             </tr>
                           )}
+
                           {features.map((feature) => {
-                            const IconComponent = feature.icon;
+                            const IconComponent = feature.icon || PackageIcon;
                             const isSelected = selectedRows.includes(
                               feature.id
                             );
                             const hasDependencyIssues =
                               !checkDependencies(feature);
-
                             return (
                               <tr
                                 key={feature.id}
@@ -1102,18 +1006,17 @@ export function MatrixPackageSplit() {
                                     <Checkbox
                                       checked={isSelected}
                                       onCheckedChange={(checked) => {
-                                        if (checked) {
+                                        if (checked)
                                           setSelectedRows([
                                             ...selectedRows,
                                             feature.id,
                                           ]);
-                                        } else {
+                                        else
                                           setSelectedRows(
                                             selectedRows.filter(
                                               (id) => id !== feature.id
                                             )
                                           );
-                                        }
                                       }}
                                     />
                                     <div className="flex items-center gap-2">
@@ -1128,7 +1031,7 @@ export function MatrixPackageSplit() {
                                                 setDetailDrawerOpen(true);
                                               }}
                                             >
-                                              {feature.subpath || feature.name}
+                                              {feature.name}
                                             </button>
                                           </TooltipTrigger>
                                           <TooltipContent>
@@ -1149,7 +1052,7 @@ export function MatrixPackageSplit() {
                                             variant="outline"
                                             className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-400"
                                           >
-                                            {feature.module}
+                                            {feature.module || "General"}
                                           </Badge>
                                           <Badge
                                             variant="outline"
@@ -1157,21 +1060,31 @@ export function MatrixPackageSplit() {
                                           >
                                             {feature.type}
                                           </Badge>
+                                          {hasDependencyIssues && (
+                                            <Badge
+                                              variant="destructive"
+                                              className="text-xs px-2 py-0.5 rounded-full"
+                                            >
+                                              Dependency
+                                            </Badge>
+                                          )}
                                         </div>
                                       </div>
                                     </div>
                                   </div>
                                 </td>
+
                                 {filteredPackages.map((pkg) => {
                                   const key = `${feature.id}-${pkg.id}`;
                                   const cell =
-                                    matrixData[selectedProduct.id]?.[key];
+                                    matrixData[selectedProduct.product_code]?.[
+                                      key
+                                    ];
                                   const isEnabled = cell?.enabled || false;
                                   const isDraft = cell?.isDraft || false;
-
                                   return (
                                     <td
-                                      key={pkg.id}
+                                      key={String(pkg.id)}
                                       className="border border-slate-300 dark:border-slate-700 p-3 text-center"
                                     >
                                       <div className="flex flex-col items-center gap-1">
@@ -1224,7 +1137,7 @@ export function MatrixPackageSplit() {
                 {selectedFeature?.name}
               </div>
               <div className="text-sm text-muted-foreground">
-                {selectedFeature?.module} • {selectedFeature?.type}
+                {selectedFeature?.module || "General"} • {selectedFeature?.type}
               </div>
             </SheetHeader>
 
@@ -1236,34 +1149,32 @@ export function MatrixPackageSplit() {
                     {selectedFeature.description || "No description available"}
                   </div>
                 </div>
+
                 {selectedFeature.dependencies && (
                   <div className="flex flex-col gap-2">
                     <div className="font-semibold">Dependencies</div>
                     <div className="flex flex-col gap-1">
-                      {selectedFeature.dependencies.map((depId) => {
-                        const dep = selectedProduct.features.find(
-                          (f) => f.id === depId
-                        );
-                        return (
-                          <span key={depId} className="text-sm">
-                            • {dep?.name || depId}
-                          </span>
-                        );
-                      })}
+                      {selectedFeature.dependencies.map((depId) => (
+                        <span key={depId} className="text-sm">
+                          • {depId}
+                        </span>
+                      ))}
                     </div>
                   </div>
                 )}
+
                 <div className="flex flex-col gap-2">
                   <div className="font-semibold">Package Settings</div>
                   <div className="flex flex-col gap-2">
                     {filteredPackages.map((pkg) => {
                       const key = `${selectedFeature.id}-${pkg.id}`;
                       const isEnabled =
-                        matrixData[selectedProduct.id]?.[key]?.enabled || false;
+                        matrixData[selectedProduct.product_code]?.[key]
+                          ?.enabled || false;
 
                       return (
                         <div
-                          key={pkg.id}
+                          key={String(pkg.id)}
                           className="flex items-center justify-between"
                         >
                           <span className="text-sm">{pkg.name}</span>
@@ -1456,10 +1367,6 @@ export function MatrixPackageSplit() {
                   Matrix
                 </h1>
                 <div className="text-sm text-muted-foreground">
-                  Generated on {new Date().toLocaleDateString()} at{" "}
-                  {new Date().toLocaleTimeString()}
-                </div>
-                <div className="text-sm text-muted-foreground">
                   Packages: {filteredPackages.map((p) => p.name).join(", ")}
                 </div>
               </div>
@@ -1472,7 +1379,7 @@ export function MatrixPackageSplit() {
                     <span className="text-sm">Enabled</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="text-red-500 text-lg">❌</span>
+                    <span className="text-gray-400 text-lg">❌</span>
                     <span className="text-sm">Disabled</span>
                   </div>
                 </div>
@@ -1484,31 +1391,23 @@ export function MatrixPackageSplit() {
                     <h2 className="text-xl font-semibold mb-4">
                       Features Matrix
                     </h2>
-                    {renderPrintTable(
-                      filteredFeatures.filter((f) => f.type === "feature")
-                    )}
+                    {renderPrintTable(getPreviewItems("features"))}
                   </div>
                   <div>
                     <h2 className="text-xl font-semibold mb-4">Menus Matrix</h2>
-                    {renderPrintTable(
-                      filteredFeatures.filter((f) => f.type === "menu")
-                    )}
+                    {renderPrintTable(getPreviewItems("menus"))}
                   </div>
                 </div>
               ) : (
                 renderPrintTable(
-                  filteredFeatures.filter((f) =>
-                    previewShowMode === "features"
-                      ? f.type === "feature"
-                      : f.type === "menu"
+                  getPreviewItems(
+                    previewShowMode === "features" ? "features" : "menus"
                   )
                 )
               )}
 
               <div className="text-center text-sm text-muted-foreground mt-8 pt-4 border-t">
-                Agile Store • {selectedProduct.name} • Generated on{" "}
-                {new Date().toLocaleDateString()} at{" "}
-                {new Date().toLocaleTimeString()}
+                Agile Store • {selectedProduct.name}
               </div>
             </div>
           </div>

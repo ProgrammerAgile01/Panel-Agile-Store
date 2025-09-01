@@ -2,178 +2,176 @@
 
 namespace App\Http\Controllers;
 
-use App\Http\Controllers\Controller;
-use App\Models\ProductPackage;
 use Illuminate\Http\Request;
-use Illuminate\Support\Str;
-use Illuminate\Validation\Rule;
+use Illuminate\Support\Facades\DB;
+use App\Models\Product;
+use App\Models\ProductPackage;
 
 class ProductPackageController extends Controller
 {
     /**
-     * GET /api/packages
-     * Query:
-     * - product_code=RENTVIX (disarankan)
-     * - product_id=uuid
-     * - status=active|inactive
-     * - q=keyword (name/description/notes)
-     * - per_page=200  (default 50, jika per_page=0 -> all)
+     * PUBLIC — daftar paket per product (default hanya active).
+     * GET /api/catalog/products/{codeOrId}/packages?include_inactive=1
      */
-    public function index(Request $req)
+    public function listByProduct(Request $request, string $codeOrId)
+    {
+        $includeInactive = (int)$request->query('include_inactive', 0) === 1;
+
+        $q = ProductPackage::query()
+            ->where(function ($qq) use ($codeOrId) {
+                $qq->where('product_code', $codeOrId);
+                if (is_numeric($codeOrId)) {
+                    $qq->orWhere('product_id', (int)$codeOrId);
+                }
+            });
+
+        if (!$includeInactive) {
+            $q->where('status', 'active');
+        }
+
+        $rows = $q->orderBy('order_number')->orderBy('id')->get([
+            'id',
+            'product_id',
+            'product_code',
+            'package_code',
+            'name',
+            'description',
+            'status',
+            'notes',
+            'order_number',
+            'created_at',
+            'updated_at',
+            'deleted_at',
+        ]);
+
+        return response()->json(['data' => $rows]);
+    }
+
+    /**
+     * ADMIN (JWT) — list packages (dengan filter).
+     * GET /api/packages?product_code=&product_id=&status=&q=&per_page=
+     */
+    public function index(Request $request)
     {
         $q = ProductPackage::query();
 
-        if ($pc = $req->query('product_code')) {
+        if ($pc = $request->query('product_code')) {
             $q->where('product_code', $pc);
         }
-        if ($pid = $req->query('product_id')) {
+        if ($pid = $request->query('product_id')) {
             $q->where('product_id', $pid);
         }
-        if ($st = $req->query('status')) {
+        if ($st = $request->query('status')) {
             $q->where('status', $st);
         }
-        if ($search = trim((string) $req->query('q', ''))) {
-            $q->where(function ($w) use ($search) {
-                $w->where('name', 'like', "%{$search}%")
-                  ->orWhere('description', 'like', "%{$search}%")
-                  ->orWhere('notes', 'like', "%{$search}%")
-                  ->orWhere('package_code', 'like', "%{$search}%");
+        if ($kw = trim((string)$request->query('q', ''))) {
+            $q->where(function ($qq) use ($kw) {
+                $qq->where('name', 'like', "%{$kw}%")
+                   ->orWhere('description', 'like', "%{$kw}%")
+                   ->orWhere('package_code', 'like', "%{$kw}%");
             });
         }
 
         $q->orderBy('order_number')->orderBy('id');
 
-        $perPage = (int) $req->query('per_page', 50);
-        if ($perPage === 0) {
-            $rows = $q->get();
-        } else {
-            $rows = $q->paginate($perPage);
+        $perPage = (int)$request->query('per_page', 0);
+        if ($perPage > 0) {
+            $page = $q->paginate($perPage);
+            return response()->json($page);
         }
 
-        return response()->json([
-            'success' => true,
-            'data'    => $rows,
-        ]);
+        $rows = $q->get();
+        return response()->json(['data' => $rows]);
     }
 
     /**
+     * ADMIN (JWT) — detail paket.
      * GET /api/packages/{id}
      */
     public function show($id)
     {
         $row = ProductPackage::findOrFail($id);
+        return response()->json(['data' => $row]);
+    }
+
+    /**
+     * ADMIN (JWT) — create package.
+     * POST /api/packages
+     */
+    public function store(Request $request)
+    {
+        $validated = $request->validate([
+            'product_code' => ['required', 'string'],
+            'name'         => ['required', 'string', 'max:150'],
+            'status'       => ['nullable', 'in:active,inactive'],
+            'order_number' => ['nullable', 'integer'],
+        ]);
+
+        // Cari product_id bila ada product_code
+        $product = Product::where('product_code', $validated['product_code'])->first();
+        $payload = $request->only([
+            'product_code',
+            'product_id',
+            'package_code',
+            'name',
+            'description',
+            'status',
+            'notes',
+            'order_number',
+        ]);
+
+        if (!$payload['product_id'] && $product) {
+            $payload['product_id'] = $product->id;
+        }
+
+        $payload['status'] = $payload['status'] ?? 'active';
+
+        $row = ProductPackage::create($payload);
+
+        return response()->json(['success' => true, 'data' => $row], 201);
+    }
+
+    /**
+     * ADMIN (JWT) — update package.
+     * PUT /api/packages/{id}
+     */
+    public function update(Request $request, $id)
+    {
+        $row = ProductPackage::findOrFail($id);
+
+        $validated = $request->validate([
+            'name'         => ['sometimes', 'required', 'string', 'max:150'],
+            'status'       => ['nullable', 'in:active,inactive'],
+            'order_number' => ['nullable', 'integer'],
+        ]);
+
+        $payload = $request->only([
+            'product_code',
+            'product_id',
+            'package_code',
+            'name',
+            'description',
+            'status',
+            'notes',
+            'order_number',
+        ]);
+
+        // Sinkronkan product_id jika product_code diubah
+        if (!empty($payload['product_code'])) {
+            $product = Product::where('product_code', $payload['product_code'])->first();
+            if ($product) {
+                $payload['product_id'] = $product->id;
+            }
+        }
+
+        $row->fill($payload);
+        $row->save();
+
         return response()->json(['success' => true, 'data' => $row]);
     }
 
     /**
-     * POST /api/packages
-     * Body:
-     * - product_code (required)
-     * - product_id (optional)
-     * - name (required)
-     * - package_code (optional -> auto slug dari name jika kosong)
-     * - description, notes (optional)
-     * - status (active|inactive, default active)
-     * - order_number (int)
-     */
-    public function store(Request $req)
-    {
-        $data = $req->validate([
-            'product_code' => ['required', 'string', 'max:50'],
-            'product_id'   => ['nullable', 'string', 'max:36'],
-            'name'         => ['required', 'string', 'max:120'],
-            'package_code' => ['nullable', 'string', 'max:60'],
-            'description'  => ['nullable', 'string'],
-            'notes'        => ['nullable', 'string'],
-            'status'       => ['nullable', Rule::in(['active', 'inactive'])],
-            'order_number' => ['nullable', 'integer', 'min:0'],
-        ]);
-
-        // default/auto
-        if (empty($data['status'])) {
-            $data['status'] = 'active';
-        }
-        if (empty($data['package_code'])) {
-            $data['package_code'] = Str::slug($data['name']);
-        } else {
-            $data['package_code'] = Str::slug($data['package_code']);
-        }
-        if (!isset($data['order_number'])) {
-            $data['order_number'] = 0;
-        }
-
-        // pastikan unik per (product_code, package_code)
-        $exists = ProductPackage::where('product_code', $data['product_code'])
-            ->where('package_code', $data['package_code'])
-            ->exists();
-        if ($exists) {
-            return response()->json([
-                'success' => false,
-                'message' => "Package code '{$data['package_code']}' already exists for product {$data['product_code']}",
-            ], 422);
-        }
-
-        $row = ProductPackage::create($data);
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Package created',
-            'data'    => $row,
-        ], 201);
-    }
-
-    /**
-     * PUT /api/packages/{id}
-     */
-    public function update(Request $req, $id)
-    {
-        $row = ProductPackage::findOrFail($id);
-
-        $data = $req->validate([
-            'product_code' => ['sometimes', 'string', 'max:50'],
-            'product_id'   => ['nullable', 'string', 'max:36'],
-            'name'         => ['sometimes', 'string', 'max:120'],
-            'package_code' => ['nullable', 'string', 'max:60'],
-            'description'  => ['nullable', 'string'],
-            'notes'        => ['nullable', 'string'],
-            'status'       => ['nullable', Rule::in(['active', 'inactive'])],
-            'order_number' => ['nullable', 'integer', 'min:0'],
-        ]);
-
-        // handle slug
-        if (array_key_exists('package_code', $data)) {
-            if (empty($data['package_code'])) {
-                // jika dikosongkan, generate dari name (atau dari existing name)
-                $data['package_code'] = Str::slug($data['name'] ?? $row->name);
-            } else {
-                $data['package_code'] = Str::slug($data['package_code']);
-            }
-        }
-
-        // cek unik (product_code, package_code) saat berubah
-        $pc = $data['product_code'] ?? $row->product_code;
-        $pcc= $data['package_code'] ?? $row->package_code;
-        $dupe = ProductPackage::where('product_code', $pc)
-            ->where('package_code', $pcc)
-            ->where('id', '!=', $row->id)
-            ->exists();
-        if ($dupe) {
-            return response()->json([
-                'success' => false,
-                'message' => "Package code '{$pcc}' already exists for product {$pc}",
-            ], 422);
-        }
-
-        $row->fill($data)->save();
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Package updated',
-            'data'    => $row,
-        ]);
-    }
-
-    /**
+     * ADMIN (JWT) — delete (soft delete).
      * DELETE /api/packages/{id}
      */
     public function destroy($id)
@@ -181,36 +179,118 @@ class ProductPackageController extends Controller
         $row = ProductPackage::findOrFail($id);
         $row->delete();
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Package deleted',
-        ]);
+        return response()->json(['success' => true]);
     }
 
     /**
-     * GET /api/catalog/products/{codeOrId}/packages
-     * Public: list paket untuk product (default hanya active).
-     * Query:
-     * - include_inactive=1  (opsional)
+     * ADMIN (JWT) — bulk upsert matrix paket untuk feature/menu.
+     * POST /api/catalog/products/{codeOrId}/matrix/bulk
+     * Body:
+     * {
+     *   "changes": [
+     *     {"item_type":"feature|menu","item_id":"export-excel","package_id":123,"enabled":true},
+     *     ...
+     *   ]
+     * }
      */
-    public function listByProduct(Request $req, $codeOrId)
+    public function saveMatrixBulk(Request $request, string $codeOrId)
     {
-        $q = ProductPackage::query()
-            ->where(function ($w) use ($codeOrId) {
-                // codeOrId bisa product_code ATAU product_id
-                $w->where('product_code', $codeOrId)
-                  ->orWhere('product_id', $codeOrId);
-            });
+        $validated = $request->validate([
+            'changes'                  => ['required', 'array', 'min:1'],
+            'changes.*.item_type'      => ['required', 'in:feature,menu'],
+            'changes.*.item_id'        => ['required', 'string'],
+            'changes.*.package_id'     => ['required', 'integer'],
+            'changes.*.enabled'        => ['required', 'boolean'],
+        ]);
 
-        if (!$req->boolean('include_inactive')) {
-            $q->where('status', 'active');
+        $product = Product::where('product_code', $codeOrId)
+            ->orWhere('id', $codeOrId)
+            ->firstOrFail();
+
+        $now = now()->toDateTimeString();
+
+        // Validasi package milik product yang sama
+        $pkgIds = collect($validated['changes'])->pluck('package_id')->unique()->values()->all();
+        $validPkgs = ProductPackage::where('product_code', $product->product_code)
+            ->whereIn('id', $pkgIds)
+            ->pluck('id')
+            ->all();
+
+        $invalidPkg = array_diff($pkgIds, $validPkgs);
+        if ($invalidPkg) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid package_id for this product: ' . implode(',', $invalidPkg),
+            ], 422);
         }
 
-        $rows = $q->orderBy('order_number')->orderBy('id')->get();
+        // Upsert ke tabel matrix (pastikan tabel & unique index sesuai)
+        $rows = [];
+        foreach ($validated['changes'] as $c) {
+            $rows[] = [
+                'product_code' => $product->product_code,
+                'package_id'   => (int)$c['package_id'],
+                'item_type'    => (string)$c['item_type'],
+                'item_id'      => (string)$c['item_id'],
+                'enabled'      => (bool)$c['enabled'],
+                'updated_at'   => $now,
+                'created_at'   => $now,
+            ];
+        }
 
-        return response()->json([
-            'success' => true,
-            'data'    => $rows,
+        DB::table('mst_package_matrix')->upsert(
+            $rows,
+            ['product_code', 'package_id', 'item_type', 'item_id'],
+            ['enabled', 'updated_at']
+        );
+
+        return response()->json(['success' => true, 'count' => count($rows)]);
+    }
+
+    /**
+     * ADMIN (JWT) — toggle satu sel matrix.
+     * POST /api/catalog/products/{codeOrId}/matrix/toggle
+     * Body:
+     * {
+     *   "item_type":"feature|menu",
+     *   "item_id":"export-excel",
+     *   "package_id":123,
+     *   "enabled":true
+     * }
+     */
+    public function toggleCell(Request $request, string $codeOrId)
+    {
+        $validated = $request->validate([
+            'item_type'  => ['required', 'in:feature,menu'],
+            'item_id'    => ['required', 'string'],
+            'package_id' => ['required', 'integer'],
+            'enabled'    => ['required', 'boolean'],
         ]);
+
+        $product = Product::where('product_code', $codeOrId)
+            ->orWhere('id', $codeOrId)
+            ->firstOrFail();
+
+        $pkg = ProductPackage::where('product_code', $product->product_code)
+            ->where('id', (int)$validated['package_id'])
+            ->firstOrFail();
+
+        $now = now()->toDateTimeString();
+
+        DB::table('mst_package_matrix')->upsert(
+            [[
+                'product_code' => $product->product_code,
+                'package_id'   => $pkg->id,
+                'item_type'    => (string)$validated['item_type'],
+                'item_id'      => (string)$validated['item_id'],
+                'enabled'      => (bool)$validated['enabled'],
+                'updated_at'   => $now,
+                'created_at'   => $now,
+            ]],
+            ['product_code', 'package_id', 'item_type', 'item_id'],
+            ['enabled', 'updated_at']
+        );
+
+        return response()->json(['success' => true]);
     }
 }

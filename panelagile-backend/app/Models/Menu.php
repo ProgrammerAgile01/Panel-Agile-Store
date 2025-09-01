@@ -9,14 +9,13 @@ class Menu extends Model
 {
     use SoftDeletes;
 
-    // tetap menunjuk ke tabel mirror yang sama
     protected $table = 'mst_menus';
 
     protected $fillable = [
         'id',
         'parent_id',
         'level',
-        'type',
+        'type',            // group | module | menu | submenu
         'title',
         'icon',
         'color',
@@ -27,28 +26,38 @@ class Menu extends Model
         'is_active',
         'note',
         'created_by',
+        'created_at',
+        'updated_at',
+        'deleted_at',
     ];
 
     public $incrementing = true;
     protected $keyType = 'int';
 
-    // (opsional) casting ringan
     protected $casts = [
         'id'           => 'integer',
         'parent_id'    => 'integer',
         'level'        => 'integer',
         'order_number' => 'integer',
         'is_active'    => 'boolean',
+        'created_at'   => 'datetime',
+        'updated_at'   => 'datetime',
+        'deleted_at'   => 'datetime',
     ];
 
-    /** Scope: filter per product_code */
+    /* Scopes */
     public function scopeForProduct($q, ?string $code)
     {
         if ($code) $q->where('product_code', $code);
         return $q;
     }
 
-    /** Self relations */
+    /* Relations */
+    public function product()
+    {
+        return $this->belongsTo(Product::class, 'product_code', 'product_code');
+    }
+
     public function parent()
     {
         return $this->belongsTo(self::class, 'parent_id');

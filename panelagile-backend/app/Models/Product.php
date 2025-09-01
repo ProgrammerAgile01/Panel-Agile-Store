@@ -30,7 +30,26 @@ class Product extends Model
         return $this->hasMany(ProductPackage::class, 'product_code', 'product_code');
         // bisa juga pakai product_id kalau konsisten pakai UUID
     }
+  /* ---- Relations ---- */
+    public function menus()
+    {
+        return $this->hasMany(Menu::class, 'product_code', 'product_code')
+            ->whereNull('deleted_at')
+            ->orderBy('order_number');
+    }
 
+    public function features()
+    {
+        return $this->hasMany(ProductFeature::class, 'product_code', 'product_code');
+    }
+
+   
+   
+    /* ---- Scopes ---- */
+    public function scopeActive($q)
+    {
+        return $q->where('status', 'active');
+    }
     // 1 Product → banyak Pricelist
     public function pricelists()
     {

@@ -25,4 +25,8 @@ class ProductPackage extends Model
     protected $casts = [
         'order_number' => 'integer',
     ];
+    public function product()
+    {
+        return $this->belongsTo(Product::class, 'product_code', 'product_code');
+    }
 }
