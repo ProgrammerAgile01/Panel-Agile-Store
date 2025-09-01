@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useState, useEffect } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -33,13 +33,28 @@ import {
   Folder,
   FileText,
   Settings,
+  Pencil,
 } from "lucide-react";
 import { toast } from "sonner";
+
 import {
   listPanelCatalogProducts,
   panelListFeaturesByProduct,
   panelListMenusByProduct,
+  panelUpdateParentFeaturePrice,
 } from "@/lib/api";
+
+// shadcn dialog + label
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+  DialogClose,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 
 /* ================= Types ================= */
 interface Product {
@@ -50,6 +65,7 @@ interface Product {
   description: string;
   category: string;
 }
+
 interface MenuGroup {
   group: string;
   modules: MenuModule[];
@@ -77,9 +93,11 @@ interface Feature {
   item_type?: "FEATURE" | "SUBFEATURE" | string;
   module_name?: string;
   children?: Feature[];
-  // kunci tambahan untuk builder:
   feature_code?: string;
   parent_code?: string;
+  price_addon?: number;
+  trial_available?: boolean;
+  trial_days?: number | null;
 }
 interface ApiResponse {
   menus: MenuGroup[];
@@ -96,7 +114,7 @@ export function FeatureProductSplit() {
   );
   const [groupByModule, setGroupByModule] = useState(true);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState("menus");
+  const [activeTab, setActiveTab] = useState<"menus" | "features">("menus");
 
   const [apiData, setApiData] = useState<Record<string, ApiResponse>>({});
   const [isLoading, setIsLoading] = useState(false);
@@ -104,6 +122,12 @@ export function FeatureProductSplit() {
   const [expandedModules, setExpandedModules] = useState<Set<string>>(
     new Set()
   );
+
+  // edit price modal state
+  const [editOpen, setEditOpen] = useState(false);
+  const [editTarget, setEditTarget] = useState<Feature | null>(null);
+  const [editPrice, setEditPrice] = useState<string>("0");
+  const [isSaving, setIsSaving] = useState(false);
 
   const selectedProductData = products.find(
     (p) => p.product_code === selectedProduct
@@ -141,11 +165,17 @@ export function FeatureProductSplit() {
           "[FeatureProductSplit] Load products error:",
           e?.message || e
         );
-        toast.error("Failed to load products from Panel.");
+        toast.error(e?.message || "Failed to load products from Panel.");
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /* --------- Sinkron filter type ke tab (UI tetap sama) --------- */
+  useEffect(() => {
+    if (filterType === "Features") setActiveTab("features");
+    if (filterType === "Menus") setActiveTab("menus");
+  }, [filterType]);
 
   /* --------- Load/Refresh mirror from Panel --------- */
   const handleLoadAPI = async (refresh = false) => {
@@ -208,7 +238,7 @@ export function FeatureProductSplit() {
       );
     } catch (e: any) {
       console.error("[FeatureProductSplit] Load Error:", e?.message || e);
-      toast.error("Failed to load data.");
+      toast.error(e?.message || "Failed to load data.");
     } finally {
       setIsLoading(false);
     }
@@ -251,20 +281,218 @@ export function FeatureProductSplit() {
   };
   const handleReload = () => handleLoadAPI(true);
 
+  /* --------- Debounce search --------- */
+  const [debouncedQuery, setDebouncedQuery] = useState("");
   useEffect(() => {
-    const t = setTimeout(() => {}, 250);
+    const t = setTimeout(() => setDebouncedQuery(searchQuery.trim()), 250);
     return () => clearTimeout(t);
   }, [searchQuery]);
 
-  /* --------- Mappers --------- */
+  /* --------- Filtered Views (data only) --------- */
+  const filteredMenus = useMemo(() => {
+    if (!currentData?.menus) return [];
+    const q = debouncedQuery.toLowerCase();
+    if (!q) return currentData.menus;
 
+    const groups: MenuGroup[] = [];
+    for (const g of currentData.menus) {
+      const filteredModules: MenuModule[] = [];
+      for (const m of g.modules) {
+        const menus = m.menus.filter((x) => x.name.toLowerCase().includes(q));
+        const submenus = (m.submenus || []).filter((x) =>
+          [x.name, x.menu].some((v) => v.toLowerCase().includes(q))
+        );
+        const modMatch = m.name.toLowerCase().includes(q);
+        if (menus.length || submenus.length || modMatch) {
+          filteredModules.push({
+            name: m.name,
+            menus: modMatch ? m.menus : menus,
+            submenus: modMatch ? m.submenus : submenus,
+          });
+        }
+      }
+      if (filteredModules.length || g.group.toLowerCase().includes(q)) {
+        groups.push({
+          group: g.group,
+          modules: g.group.toLowerCase().includes(q)
+            ? g.modules
+            : filteredModules,
+        });
+      }
+    }
+    return groups;
+  }, [currentData?.menus, debouncedQuery]);
+
+  const filteredFeatures = useMemo(() => {
+    if (!currentData?.features)
+      return {
+        global: [] as Feature[],
+        modules: {} as Record<string, Feature[]>,
+      };
+    const q = debouncedQuery.toLowerCase();
+    if (!q) return currentData.features;
+
+    const includeFeat = (f: Feature) =>
+      [f.name, f.description, f.module_name, f.feature_code]
+        .filter(Boolean)
+        .some((v) => String(v).toLowerCase().includes(q));
+
+    const global = currentData.features.global
+      .map((p) => ({ ...p, children: (p.children || []).filter(includeFeat) }))
+      .filter((p) => includeFeat(p) || (p.children?.length ?? 0) > 0);
+
+    const modules: Record<string, Feature[]> = {};
+    for (const [mod, arr] of Object.entries(currentData.features.modules)) {
+      const kept = arr
+        .map((p) => ({
+          ...p,
+          children: (p.children || []).filter(includeFeat),
+        }))
+        .filter(
+          (p) =>
+            includeFeat(p) ||
+            (p.children?.length ?? 0) > 0 ||
+            mod.toLowerCase().includes(q)
+        );
+      if (kept.length) modules[mod] = kept;
+    }
+    return { global, modules };
+  }, [currentData?.features, debouncedQuery]);
+
+  /* --------- Export CSV --------- */
+  const handleExport = () => {
+    if (!currentData) return;
+
+    const rows: string[] = [];
+    if (activeTab === "menus") {
+      rows.push("Group,Module,Type,Name,ID/Ref");
+      for (const g of filteredMenus) {
+        for (const m of g.modules) {
+          for (const menu of m.menus) {
+            rows.push(
+              [
+                csv(g.group),
+                csv(m.name),
+                "MENU",
+                csv(menu.name),
+                csv(menu.id),
+              ].join(",")
+            );
+          }
+          for (const sm of m.submenus || []) {
+            rows.push(
+              [
+                csv(g.group),
+                csv(m.name),
+                "SUBMENU",
+                csv(sm.name),
+                csv(sm.id),
+              ].join(",")
+            );
+          }
+        }
+      }
+    } else {
+      rows.push(
+        "Scope,Module,Type,Name,FeatureCode,Active,PriceAddon,Trial,TrialDays,Description,ID"
+      );
+      const pushFeat = (scope: string, f: Feature) => {
+        rows.push(
+          [
+            scope,
+            csv(f.module_name || ""),
+            (f.item_type || "FEATURE").toString().toUpperCase(),
+            csv(f.name),
+            csv(f.feature_code || ""),
+            f.status ? "1" : "0",
+            typeof f.price_addon === "number" ? String(f.price_addon) : "0",
+            f.trial_available ? "1" : "0",
+            f.trial_days ?? "",
+            csv(f.description || ""),
+            csv(f.id),
+          ].join(",")
+        );
+        for (const c of f.children || []) {
+          rows.push(
+            [
+              scope,
+              csv(c.module_name || ""),
+              "SUBFEATURE",
+              csv(c.name),
+              csv(c.feature_code || ""),
+              c.status ? "1" : "0",
+              typeof c.price_addon === "number" ? String(c.price_addon) : "0",
+              c.trial_available ? "1" : "0",
+              c.trial_days ?? "",
+              csv(c.description || ""),
+              csv(c.id),
+            ].join(",")
+          );
+        }
+      };
+      for (const p of filteredFeatures.global) pushFeat("GLOBAL", p);
+      for (const [mod, arr] of Object.entries(filteredFeatures.modules)) {
+        for (const p of arr) pushFeat(mod, p);
+      }
+    }
+
+    const blob = new Blob([rows.join("\n")], {
+      type: "text/csv;charset=utf-8",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const baseName = activeTab === "menus" ? "menus_export" : "features_export";
+    a.href = url;
+    a.download = `${baseName}_${selectedProduct || "product"}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  /* --------- Edit Price handlers --------- */
+  const openEditPrice = (f: Feature) => {
+    if ((f.item_type || "FEATURE").toUpperCase() !== "FEATURE") return; // hanya parent
+    setEditTarget(f);
+    setEditPrice(
+      typeof f.price_addon === "number" && !isNaN(f.price_addon)
+        ? String(f.price_addon)
+        : "0"
+    );
+    setEditOpen(true);
+  };
+
+  const submitEditPrice = async () => {
+    if (!editTarget || !selectedProduct) return;
+    const value = Number(editPrice);
+    if (isNaN(value) || value < 0) {
+      toast.error("Price must be a non-negative number.");
+      return;
+    }
+    setIsSaving(true);
+    try {
+      await panelUpdateParentFeaturePrice(
+        selectedProduct,
+        editTarget.feature_code || editTarget.id,
+        value
+      );
+      toast.success("Price updated.");
+      setEditOpen(false);
+      setEditTarget(null);
+      // refresh data agar tabel ikut update
+      await handleLoadAPI(false);
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to update price.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  /* --------- Mappers --------- */
   function mapMirrorFeatureToUI(f: any): Feature {
     const id =
       String(
         f.id ?? f.feature_code ?? f.code ?? Math.random().toString(36).slice(2)
       ) || "";
 
-    // Prioritas 'name' (Panel sudah seragam dg Warehouse)
     const name =
       String(
         f.name ??
@@ -319,7 +547,10 @@ export function FeatureProductSplit() {
       module_name:
         f.module_name ?? f.module ?? f.group ?? f.category ?? "General",
       feature_code: f.feature_code ?? f.code ?? undefined,
-      parent_code: f.parent_code ?? f.menu_parent_code ?? undefined, // Panel kirim menu_parent_code
+      parent_code: f.parent_code ?? f.menu_parent_code ?? undefined,
+      price_addon: price,
+      trial_available: trialAvail,
+      trial_days: trialDays ?? null,
     } as Feature;
   }
 
@@ -331,7 +562,6 @@ export function FeatureProductSplit() {
 
     // Index parent
     const parentIndex = new Map<string, Feature>();
-
     for (const f of mapped) {
       const t = String(f.item_type || "FEATURE").toUpperCase();
       if (t === "SUBFEATURE") continue;
@@ -449,7 +679,15 @@ export function FeatureProductSplit() {
     }));
   }
 
-  /* --------- UI (markup tidak diubah) --------- */
+  function csv(v: any) {
+    const s = String(v ?? "");
+    if (s.includes(",") || s.includes('"') || s.includes("\n")) {
+      return `"${s.replace(/"/g, '""')}"`;
+    }
+    return s;
+  }
+
+  /* --------- UI (markup mayor tetap sama; hanya tambah tombol kecil & modal) --------- */
   return (
     <div className="flex h-[calc(100vh-4rem)] bg-background">
       {isMobileMenuOpen && (
@@ -499,7 +737,7 @@ export function FeatureProductSplit() {
                   ? "bg-gradient-to-r from-slate-800/80 to-slate-700/80 border border-slate-600/50 shadow-lg shadow-slate-900/20 ring-1 ring-slate-500/30"
                   : "bg-slate-800/60 hover:bg-slate-700/70 border border-transparent hover:border-slate-600/30"
               }`}
-              onClick={() => setSelectedProduct(p.product_code)}
+              onClick={() => handleProductSelect(p.product_code)}
             >
               <div
                 className={`${
@@ -587,7 +825,9 @@ export function FeatureProductSplit() {
                 {["All", "Features", "Menus"].map((filter) => (
                   <Button
                     key={filter}
-                    variant={filterType === filter ? "default" : "outline"}
+                    variant={
+                      filterType === (filter as any) ? "default" : "outline"
+                    }
                     size="sm"
                     onClick={() => setFilterType(filter as any)}
                     className={
@@ -619,6 +859,7 @@ export function FeatureProductSplit() {
                 size="sm"
                 disabled={isLoading || !currentData}
                 aria-label="Export current view to CSV"
+                onClick={handleExport}
               >
                 <Download className="h-4 w-4 mr-1" /> Export CSV
               </Button>
@@ -645,7 +886,8 @@ export function FeatureProductSplit() {
             <AlertDescription className="flex items-center justify-between">
               <span>
                 Data fitur & menu bersifat <strong>read-only</strong> (mirror
-                dari Warehouse ke Panel).
+                dari Warehouse ke Panel). Hanya harga parent feature yang bisa
+                diubah.
               </span>
               <Button variant="ghost" size="sm" onClick={handleReload}>
                 <ExternalLink className="h-4 w-4 mr-1" /> Refresh mirror
@@ -677,7 +919,7 @@ export function FeatureProductSplit() {
           ) : currentData ? (
             <Tabs
               value={activeTab}
-              onValueChange={setActiveTab}
+              onValueChange={(v) => setActiveTab(v as any)}
               className="w-full"
             >
               <TabsList className="grid w-full grid-cols-2 mb-6">
@@ -706,14 +948,14 @@ export function FeatureProductSplit() {
                     </div>
                   </CardHeader>
                   <CardContent>
-                    {currentData.menus.length === 0 ? (
+                    {filteredMenus.length === 0 ? (
                       <div className="text-center py-8 text-muted-foreground">
                         <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
                         <p>No menus mirrored</p>
                       </div>
                     ) : (
                       <div className="space-y-2">
-                        {currentData.menus.map((group) => (
+                        {filteredMenus.map((group) => (
                           <div key={group.group} className="border rounded-lg">
                             <button
                               className="w-full flex items-center gap-3 p-3 hover:bg-muted/50 transition-colors focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 rounded-lg"
@@ -862,11 +1104,11 @@ export function FeatureProductSplit() {
                   <CardHeader className="pb-3">
                     <CardTitle className="text-lg flex items-center gap-2">
                       <div className="w-3 h-3 bg-teal-500 rounded-full"></div>
-                      Global Features ({currentData.features.global.length})
+                      Global Features ({filteredFeatures.global.length})
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    {currentData.features.global.length === 0 ? (
+                    {filteredFeatures.global.length === 0 ? (
                       <div className="text-center py-4 text-muted-foreground">
                         <p>No global features available</p>
                       </div>
@@ -881,7 +1123,7 @@ export function FeatureProductSplit() {
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {currentData.features.global.map((feature) => (
+                          {filteredFeatures.global.map((feature) => (
                             <Fragment key={feature.id}>
                               <TableRow>
                                 <TableCell className="font-medium">
@@ -903,16 +1145,32 @@ export function FeatureProductSplit() {
                                   </Badge>
                                 </TableCell>
                                 <TableCell>
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => copyToClipboard(feature.id)}
-                                    className="font-mono text-xs hover:bg-muted"
-                                    aria-label={`Copy feature ID ${feature.id}`}
-                                  >
-                                    {feature.id}
-                                    <Copy className="h-3 w-3 ml-1" />
-                                  </Button>
+                                  <div className="flex items-center gap-2">
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() =>
+                                        copyToClipboard(feature.id)
+                                      }
+                                      className="font-mono text-xs hover:bg-muted"
+                                      aria-label={`Copy feature ID ${feature.id}`}
+                                    >
+                                      {feature.id}
+                                      <Copy className="h-3 w-3 ml-1" />
+                                    </Button>
+                                    {(feature.item_type || "FEATURE") ===
+                                      "FEATURE" && (
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => openEditPrice(feature)}
+                                        aria-label="Edit parent price"
+                                      >
+                                        <Pencil className="h-3 w-3 mr-1" />
+                                        Edit Price
+                                      </Button>
+                                    )}
+                                  </div>
                                 </TableCell>
                               </TableRow>
 
@@ -974,7 +1232,7 @@ export function FeatureProductSplit() {
 
                 <div className="space-y-4">
                   <h3 className="text-lg font-semibold">Module Features</h3>
-                  {Object.entries(currentData.features.modules).map(
+                  {Object.entries(filteredFeatures.modules).map(
                     ([moduleName, features]) => (
                       <Card
                         key={moduleName}
@@ -1021,18 +1279,34 @@ export function FeatureProductSplit() {
                                       </Badge>
                                     </TableCell>
                                     <TableCell>
-                                      <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        onClick={() =>
-                                          copyToClipboard(feature.id)
-                                        }
-                                        className="font-mono text-xs hover:bg-muted"
-                                        aria-label={`Copy feature ID ${feature.id}`}
-                                      >
-                                        {feature.id}
-                                        <Copy className="h-3 w-3 ml-1" />
-                                      </Button>
+                                      <div className="flex items-center gap-2">
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          onClick={() =>
+                                            copyToClipboard(feature.id)
+                                          }
+                                          className="font-mono text-xs hover:bg-muted"
+                                          aria-label={`Copy feature ID ${feature.id}`}
+                                        >
+                                          {feature.id}
+                                          <Copy className="h-3 w-3 ml-1" />
+                                        </Button>
+                                        {(feature.item_type || "FEATURE") ===
+                                          "FEATURE" && (
+                                          <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() =>
+                                              openEditPrice(feature)
+                                            }
+                                            aria-label="Edit parent price"
+                                          >
+                                            <Pencil className="h-3 w-3 mr-1" />
+                                            Edit Price
+                                          </Button>
+                                        )}
+                                      </div>
                                     </TableCell>
                                   </TableRow>
 
@@ -1102,6 +1376,66 @@ export function FeatureProductSplit() {
           ) : null}
         </div>
       </div>
+
+      {/* EDIT PRICE MODAL */}
+      <Dialog open={editOpen} onOpenChange={(o) => !isSaving && setEditOpen(o)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Parent Price</DialogTitle>
+            <DialogDescription>
+              Hanya fitur induk (item_type=FEATURE) yang bisa diubah harganya.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3 py-2">
+            <div className="space-y-1.5">
+              <Label>Feature</Label>
+              <div className="text-sm font-medium">
+                {editTarget?.name}{" "}
+                <span className="text-muted-foreground">
+                  ({editTarget?.feature_code || editTarget?.id})
+                </span>
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="price_addon">Price Add-on</Label>
+              <Input
+                id="price_addon"
+                type="number"
+                min={0}
+                step="0.01"
+                value={editPrice}
+                onChange={(e) => setEditPrice(e.target.value)}
+                disabled={isSaving}
+              />
+              <p className="text-xs text-muted-foreground">
+                Masukkan angka ≥ 0. Hanya berlaku untuk parent feature.
+              </p>
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <DialogClose asChild>
+              <Button variant="outline" disabled={isSaving}>
+                Cancel
+              </Button>
+            </DialogClose>
+            <Button onClick={submitEditPrice} disabled={isSaving}>
+              {isSaving ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : null}
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
+}
+
+/* ===== helpers (tidak mengubah UI) ===== */
+function csv(v: any) {
+  const s = String(v ?? "");
+  if (s.includes(",") || s.includes('"') || s.includes("\n")) {
+    return `"${s.replace(/"/g, '""')}"`;
+  }
+  return s;
 }

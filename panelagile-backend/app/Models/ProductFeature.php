@@ -34,7 +34,7 @@ class ProductFeature extends Model
         'is_active'       => 'boolean',
         'trial_available' => 'boolean',
         'trial_days'      => 'integer',
-        'price_addon'     => 'decimal:2',
+            'price_addon' => 'float',   
         'synced_at'       => 'datetime',
     ];
 }

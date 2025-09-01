@@ -318,6 +318,41 @@ export async function panelListMenusByProduct(
   if (!res.ok) return parseError(res);
   return res.json(); // { data: rows(item_type in MENU,SUBMENU) }
 }
+// Tambahan helper: update harga parent feature (item_type=FEATURE saja)
+export async function panelUpdateParentFeaturePrice(
+  productCodeOrId: string,
+  featureIdOrCode: string,
+  priceAddon: number
+) {
+  const url = new URL(
+    `${API_URL}/catalog/products/${encodeURIComponent(
+      productCodeOrId
+    )}/features/${encodeURIComponent(featureIdOrCode)}/price`
+  );
+
+  const res = await fetch(url.toString(), {
+    method: "PATCH",
+    headers: authHeaders({
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    }),
+    body: JSON.stringify({ price_addon: Number(priceAddon) }),
+    cache: "no-store",
+  });
+
+  if (!res.ok) {
+    // beri pesan jelas untuk 401/403
+    if (res.status === 401 || res.status === 403) {
+      throw new Error(
+        "Unauthorized: silakan login lagi untuk mengirim perubahan."
+      );
+    }
+    const errTxt = await res.text().catch(() => "");
+    throw new Error(errTxt || `HTTP ${res.status}`);
+  }
+
+  return res.json();
+}
 
 /* ======================================================================
    (Opsional) CRUD Products via JWT (dipakai halaman lain di Panel)
@@ -532,4 +567,243 @@ export async function deleteDuration(id: string | number) {
   });
   if (!res.ok) return parseError(res);
   return res.json(); // { success }
+}
+
+/* ======================================================================
+   PriceList (CRUD)
+   ====================================================================== */
+export type PricelistItemDTO = {
+  duration_id: string | number;
+  package_id: string | number;
+  price: number;
+  discount?: number | null;
+  min_billing_cycle?: number | null;
+  prorate?: boolean | null;
+  effective_start?: string | null;
+  effective_end?: string | null;
+};
+
+export type PricelistDTO = {
+  currency: string;
+  tax_mode: "inclusive" | "exclusive";
+  items: PricelistItemDTO[];
+};
+
+// ---------- PRICELIST API ----------
+export async function getPricelistByProduct(
+  codeOrId: string
+): Promise<PricelistDTO> {
+  const url = `${API_URL}/catalog/products/${encodeURIComponent(
+    codeOrId
+  )}/pricelist`;
+  const res = await fetch(url, {
+    headers: { Accept: "application/json" },
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    throw new Error(
+      txt || `Gagal mengambil pricelist (${res.status} ${res.statusText})`
+    );
+  }
+  // { currency, tax_mode, items[] }
+  return res.json();
+}
+
+/**
+ * Update header (currency/tax_mode) SAJA.
+ * Lindungi dengan JWT jika dibutuhkan (authHeaders).
+ */
+export async function updatePricelistHeader(
+  codeOrId: string,
+  payload: { currency: string; tax_mode: "inclusive" | "exclusive" }
+) {
+  const url = `${API_URL}/catalog/products/${encodeURIComponent(
+    codeOrId
+  )}/pricelist`;
+  const res = await fetch(url, {
+    method: "PUT",
+    headers: authHeaders({
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    }),
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    throw new Error(txt || `Gagal update header (${res.status})`);
+  }
+  return res.json();
+}
+
+/**
+ * Bulk upsert item harga. Payload boleh sekaligus kirim currency & tax_mode
+ * agar sinkron dengan toolbar di UI (tanpa panggil PUT terpisah).
+ */
+export async function upsertPricelistItems(
+  codeOrId: string,
+  payload: PricelistDTO
+) {
+  const url = `${API_URL}/catalog/products/${encodeURIComponent(
+    codeOrId
+  )}/pricelist/bulk`;
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: authHeaders({
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    }),
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    throw new Error(txt || `Gagal menyimpan pricelist (${res.status})`);
+  }
+  return res.json();
+}
+
+// ---------- LOADER DATA PRODUK + PACKAGES + DURATIONS ----------
+export type SidebarProduct = {
+  id: string;
+  name: string;
+  description: string;
+  status: "active" | "inactive";
+  product_code: string;
+};
+
+export type SimplePackage = {
+  id: string;
+  name: string;
+  description?: string;
+  status: "active" | "inactive";
+  package_code?: string;
+};
+
+export type SimpleDuration = {
+  id: string;
+  name: string;
+  code: string;
+  months: number;
+  status: "active" | "inactive";
+};
+
+export async function listCatalogProductsSlim(
+  q?: string
+): Promise<SidebarProduct[]> {
+  const base = API_URL.replace(/\/$/, "");
+  const url = new URL(`${base}/catalog/products`);
+  if (q) url.searchParams.set("q", q);
+  url.searchParams.set("per_page", "200");
+
+  const res = await fetch(url.toString(), {
+    headers: { Accept: "application/json" },
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    throw new Error(
+      txt || `Gagal mengambil produk (${res.status} ${res.statusText})`
+    );
+  }
+
+  const json = await res.json().catch(() => ({}));
+  const rows: any[] = Array.isArray(json?.data)
+    ? json.data
+    : Array.isArray(json)
+    ? json
+    : [];
+
+  return rows.map((r) => ({
+    id: String(r.id ?? r.product_id ?? r.code ?? crypto.randomUUID()),
+    name:
+      String(
+        r.product_name ?? r.name ?? r.title ?? r.product_code ?? "Product"
+      ) || "Product",
+    description: String(r.description ?? r.product_description ?? "") || "",
+    status: (String(r.status ?? "active").toLowerCase() === "inactive"
+      ? "inactive"
+      : "active") as "active" | "inactive",
+    product_code: String(r.product_code ?? r.code ?? r.slug ?? "") || "",
+  }));
+}
+
+export async function listPackagesByProduct(
+  codeOrId: string,
+  includeInactive = false
+): Promise<SimplePackage[]> {
+  const url = new URL(
+    `${API_URL}/catalog/products/${encodeURIComponent(codeOrId)}/packages`
+  );
+  if (includeInactive) url.searchParams.set("include_inactive", "1");
+
+  const res = await fetch(url.toString(), {
+    headers: { Accept: "application/json" },
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    throw new Error(txt || `Gagal mengambil packages (${res.status})`);
+  }
+  const json = await res.json().catch(() => ({}));
+  const rows: any[] = Array.isArray(json?.data)
+    ? json.data
+    : Array.isArray(json)
+    ? json
+    : [];
+  return rows.map((r) => ({
+    id: String(r.id),
+    name: String(r.name ?? r.package_name ?? "Package"),
+    description: String(r.description ?? "") || "",
+    status: (String(r.status ?? "active").toLowerCase() === "inactive"
+      ? "inactive"
+      : "active") as "active" | "inactive",
+    package_code: r.package_code ? String(r.package_code) : undefined,
+  }));
+}
+
+export async function listDurationsActive(): Promise<SimpleDuration[]> {
+  const url = new URL(`${API_URL}/durations`);
+  url.searchParams.set("status", "active");
+
+  const res = await fetch(url.toString(), {
+    headers: authHeaders({ Accept: "application/json" }),
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    throw new Error(
+      txt || `Gagal mengambil durations (${res.status} ${res.statusText})`
+    );
+  }
+  const json = await res.json().catch(() => ({}));
+  const rows: any[] = Array.isArray(json?.data)
+    ? json.data
+    : Array.isArray(json)
+    ? json
+    : [];
+  return rows.map((r) => ({
+    id: String(r.id),
+    name: String(r.name ?? ""),
+    code: String(r.code ?? ""),
+    months: Number(r.months ?? 1),
+    status: (String(r.status ?? "active").toLowerCase() === "archived"
+      ? "inactive"
+      : "active") as "active" | "inactive",
+  }));
+}
+
+/**
+ * Helper gabungan buat komponen Pricelist:
+ * - ambil produk list
+ * - ambil packages & durations untuk product terpilih
+ * - ambil pricelist untuk product terpilih
+ */
+export async function loadPricelistBundle(codeOrId: string) {
+  const [packages, durations, pricelist] = await Promise.all([
+    listPackagesByProduct(codeOrId, false),
+    listDurationsActive(),
+    getPricelistByProduct(codeOrId),
+  ]);
+  return { packages, durations, pricelist };
 }

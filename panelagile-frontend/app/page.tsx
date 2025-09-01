@@ -15,6 +15,7 @@ import { FeatureProductSplit } from "@/components/feature-product-split";
 import { PackageProductSplit } from "@/components/package-product-split";
 import { MatrixPackageSplit } from "@/components/matrix-package-split";
 import { Durations } from "@/components/durations";
+import { Pricelist } from "@/components/pricelist";
 import { LevelUser } from "@/components/level-user";
 import { MatrixLevel } from "@/components/matrix-level";
 import { DataUser } from "@/components/data-user";
@@ -111,6 +112,8 @@ export default function AdminDashboard() {
       case "durations":
       case "durasi":
         return <Durations />;
+      case "pricelist":
+        return <Pricelist />;
       case "level-user":
         return <LevelUser />;
       case "matrix-level":

@@ -11,6 +11,7 @@ use App\Http\Controllers\ProductFeatureController;
 use App\Http\Controllers\ProductPackageController;
 use App\Http\Controllers\DurationController;
 use App\Http\Controllers\ProductController;
+use App\Http\Controllers\PricelistController;
 use App\Http\Middleware\PermissionMiddleware;
 use App\Http\Controllers\Catalog\ProductSyncController; 
 
@@ -134,6 +135,13 @@ Route::post('/catalog/products/sync',            [ProductSyncController::class, 
 Route::get ('/catalog/products/{codeOrId}/features',      [ProductFeatureController::class, 'listFeatures']); // ?refresh=1
 Route::post('/catalog/products/{codeOrId}/features/sync', [ProductFeatureController::class, 'syncFeatures']);
 Route::get ('/catalog/products/{codeOrId}/menus',         [ProductFeatureController::class, 'listMenus']);    // ?refresh=1
+// routes/api.php
+Route::middleware(['auth:api'])->group(function () {
+    Route::patch(
+        '/catalog/products/{codeOrId}/features/{feature}/price',
+        [ProductFeatureController::class, 'updatePrice']
+    );
+});
 
 /* ===================== Packages ===================== */
 // Public: daftar paket per produk (default hanya active)
@@ -155,6 +163,20 @@ Route::middleware('jwt.auth')->group(function () {
     Route::post('/durations', [DurationController::class, 'store']);
     Route::put('/durations/{id}', [DurationController::class, 'update']);
     Route::delete('/durations/{id}', [DurationController::class, 'destroy']);
+    
+});
+
+/* ===================== Price List ===================== */
+
+
+// Publik GET (baca pricelist)
+Route::get('/catalog/products/{codeOrId}/pricelist', [PricelistController::class, 'show']);
+
+// Proteksi untuk edit (kalau pakai JWT, ganti 'jwt.auth')
+Route::middleware(['jwt.auth'])->group(function () {
+    Route::put ('/catalog/products/{codeOrId}/pricelist',       [PricelistController::class, 'updateHeader']);
+    Route::post('/catalog/products/{codeOrId}/pricelist/bulk',   [PricelistController::class, 'bulkUpsert']);
+    
 });
 /*
 

@@ -11,11 +11,22 @@ class DurationController extends Controller
     {
         $q = Duration::query();
 
-        if ($status = $request->query('status')) {
-            if (in_array($status, ['active','archived'])) {
-                $q->where('status', $status);
-            }
-        }
+       if ($status = $request->query('status')) {
+    $status = strtolower($status);
+    if ($status === 'active') {
+        $q->where(function ($qq) {
+            $qq->where('status', 'active')
+               ->orWhere('status', '1')
+               ->orWhere('status', '0') // fallback lama
+               ->orWhereNull('status');
+        });
+    } elseif ($status === 'archived') {
+        $q->where(function ($qq) {
+            $qq->where('status', 'archived')
+               ->orWhere('status', '2');
+        });
+    }
+}
 
         if ($search = $request->query('q')) {
             $q->where(function ($qq) use ($search) {
@@ -29,6 +40,7 @@ class DurationController extends Controller
             'data' => $q->orderBy('length')->get()
         ]);
     }
+
 
     public function show($id)
     {
@@ -87,4 +99,5 @@ class DurationController extends Controller
 
         return response()->json(['success' => true]);
     }
+    
 }
