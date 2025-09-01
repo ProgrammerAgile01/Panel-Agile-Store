@@ -135,6 +135,7 @@ Route::post('/catalog/products/sync',            [ProductSyncController::class, 
 Route::get ('/catalog/products/{codeOrId}/features',      [ProductFeatureController::class, 'listFeatures']); // ?refresh=1
 Route::post('/catalog/products/{codeOrId}/features/sync', [ProductFeatureController::class, 'syncFeatures']);
 Route::get ('/catalog/products/{codeOrId}/menus',         [ProductFeatureController::class, 'listMenus']);    // ?refresh=1
+Route::post('/catalog/products/{codeOrId}/menus/sync',    [ProductFeatureController::class, 'syncMenus']);     // <<-- TAMBAHAN
 // routes/api.php
 Route::middleware(['auth:api'])->group(function () {
     Route::patch(

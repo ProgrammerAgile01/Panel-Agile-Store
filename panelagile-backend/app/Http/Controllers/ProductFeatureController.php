@@ -8,6 +8,12 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use App\Models\Menu;
+use App\Services\WarehouseClient;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Carbon;
+
+use Illuminate\Support\Facades\DB;
 
 class ProductFeatureController extends Controller
 {
@@ -58,22 +64,7 @@ class ProductFeatureController extends Controller
         return response()->json(['data' => $data]);
     }
 
-    /** GET /api/catalog/products/{code}/menus
-     *  Sementara kosong supaya tidak "nyangkut" ke tab Menus.
-     */
-    public function listMenus(Request $req, string $codeOrId)
-    {
-        $product = $this->resolveProduct($codeOrId);
-        if (!$product) {
-            return response()->json(['message' => 'Product not found'], 404);
-        }
-
-        if ($req->boolean('refresh')) {
-            $this->mirrorFromWarehouse($product->product_code);
-        }
-
-        return response()->json(['data' => []]);
-    }
+   
 
     /** POST /api/catalog/products/{code}/features/sync */
     public function syncFeatures(string $codeOrId)
@@ -241,5 +232,213 @@ class ProductFeatureController extends Controller
     return ['features'=>$countF,'subfeatures'=>$countS];
 }
 
+  public function listMenus(Request $req, string $codeOrId): JsonResponse
+    {
+        if ($req->boolean('refresh')) {
+            $sync = $this->syncMenus($req, $codeOrId, true);
+            if ($sync->getStatusCode() >= 300) return $sync; // gagal sync -> propagate error
+        }
+
+        // Kalau belum ada mirror lokal, auto-sync 1x
+        $exists = Menu::forProduct($codeOrId)->count();
+        if ($exists === 0) {
+            $sync = $this->syncMenus($req, $codeOrId, true);
+            if ($sync->getStatusCode() >= 300) return $sync;
+        }
+
+        $rows = Menu::forProduct($codeOrId)
+            ->orderBy('order_number')
+            ->get([
+                'id','parent_id','title','icon','route_path','order_number','is_active','product_code','type','level','color'
+            ])
+            ->map(function ($m) {
+                return [
+                    'id'           => (int) $m->id,
+                    'parent_id'    => $m->parent_id ? (int) $m->parent_id : null,
+                    'title'        => (string) $m->title,
+                    'icon'         => (string) ($m->icon ?? ''),
+                    'route_path'   => (string) ($m->route_path ?? ''),
+                    'order'        => (int) ($m->order_number ?? 0),
+                    'is_active'    => (bool) ($m->is_active ?? true),
+                    'product_code' => (string) ($m->product_code ?? ''),
+                    'type'         => (string) ($m->type ?? 'menu'),
+                    'level'        => (int) ($m->level ?? 1),
+                    'color'        => $m->color,
+                ];
+            })
+            ->values()
+            ->all();
+
+        return response()->json(['data' => $rows]);
+    }
+
+    /** POST /api/catalog/products/{codeOrId}/menus/sync */
+   private function normalizeTs(mixed $v): ?string
+{
+    if (empty($v)) return null;
+
+    // handle numeric epoch (detik/milis)
+    if (is_numeric($v)) {
+        try {
+            $ts = (int) $v;
+            if ($ts > 9999999999) { // milidetik
+                $ts = (int) floor($ts / 1000);
+            }
+            return Carbon::createFromTimestamp($ts)->timezone(config('app.timezone'))->toDateTimeString();
+        } catch (\Throwable) { return null; }
+    }
+
+    // string: coba parse ISO-8601 termasuk 'T'/'Z'
+    if (is_string($v)) {
+        $s = trim($v);
+        if ($s === '' || $s === '0000-00-00 00:00:00' || $s === '0000-00-00') return null;
+        try {
+            return Carbon::parse($s)->timezone(config('app.timezone'))->toDateTimeString();
+        } catch (\Throwable) { return null; }
+    }
+    return null;
+}
+
+/** POST /api/catalog/products/{codeOrId}/menus/sync */
+public function syncMenus(Request $req, string $codeOrId, bool $silence = false): JsonResponse
+{
+    try {
+        /** @var \App\Services\WarehouseClient $wh */
+        $wh   = app(\App\Services\WarehouseClient::class);
+        $resp = $wh->menusByProduct($codeOrId);
+
+        $rows = $resp['data'] ?? $resp ?? [];
+        if (!is_array($rows)) $rows = [];
+
+        $now    = \Illuminate\Support\Carbon::now();
+        $nowStr = $now->toDateTimeString();
+
+        // --- 1) Index semua node by id ---
+        $rawIndex = [];
+        foreach ($rows as $m) {
+            $a = (array) $m;
+            $id = (int) ($a['id'] ?? 0);
+            if ($id > 0) $rawIndex[$id] = $a;
+        }
+
+        // helper akses
+        $safeArrGet = function (int $id) use (&$rawIndex) {
+            return $rawIndex[$id] ?? null;
+        };
+
+        // --- 2) Hitung parent valid ---
+        $getParentId = function (array $a) use ($codeOrId, $safeArrGet) {
+            $pid = $a['parent_id'] ?? null;
+            if ($pid === '' || $pid === null) return null;
+            $pid = (int) $pid;
+            if ($pid <= 0) return null;
+
+            $p = $safeArrGet($pid);
+            if (!$p) return null;
+
+            $prodChild  = (string) ($a['product_code'] ?? $codeOrId);
+            $prodParent = (string) ($p['product_code'] ?? $codeOrId);
+            if ($prodChild !== '' && $prodParent !== '' && $prodChild !== $prodParent) {
+                return null;
+            }
+            return $pid;
+        };
+
+        // --- 3) Hitung level rekursif ---
+        $memoLevel = [];
+        $visiting  = [];
+        $computeLevel = function (int $id) use (&$computeLevel, &$memoLevel, &$visiting, $safeArrGet, $getParentId): int {
+            if (isset($memoLevel[$id])) return $memoLevel[$id];
+            if (!empty($visiting[$id])) return $memoLevel[$id] = 1; // siklus
+
+            $visiting[$id] = true;
+            $node = $safeArrGet($id);
+            if (!$node) { unset($visiting[$id]); return $memoLevel[$id] = 1; }
+
+            $pid = $getParentId($node);
+            if ($pid === null) { unset($visiting[$id]); return $memoLevel[$id] = 1; }
+
+            $lv = 1 + $computeLevel($pid);
+            unset($visiting[$id]);
+            return $memoLevel[$id] = max(1, min(127, $lv));
+        };
+
+        // --- 4) Normalisasi rows ---
+        $upsertsAll = [];
+        foreach ($rows as $m) {
+            $m = (array) $m;
+            $id = (int) ($m['id'] ?? 0);
+            if ($id <= 0) continue;
+
+            $pid   = $getParentId($m);
+            $ord   = (int) ($m['order'] ?? $m['order_number'] ?? 0);
+            $type  = strtoupper((string) ($m['type'] ?? 'menu'));
+            $level = $computeLevel($id);
+
+            $upsertsAll[] = [
+                'id'              => $id,
+                'parent_id'       => $pid,
+                'level'           => $level,
+                'type'            => in_array($type, ['GROUP','MODULE','MENU','SUBMENU']) ? strtolower($type) : 'menu',
+                'title'           => (string) ($m['title'] ?? $m['name'] ?? 'Menu'),
+                'icon'            => $m['icon']   ?? null,
+                'color'           => $m['color']  ?? null,
+                'order_number'    => $ord,
+                'crud_builder_id' => $m['crud_builder_id'] ?? null,
+                'product_code'    => (string) ($m['product_code'] ?? $codeOrId),
+                'route_path'      => $m['route_path'] ?? null,
+                'is_active'       => array_key_exists('is_active',$m) ? (bool)$m['is_active'] : true,
+                'note'            => $m['note'] ?? null,
+                'created_by'      => $m['created_by'] ?? null,
+                'deleted_at'      => $this->normalizeTs($m['deleted_at'] ?? null),
+                'updated_at'      => $this->normalizeTs($m['updated_at'] ?? null) ?? $nowStr,
+                'created_at'      => $this->normalizeTs($m['created_at'] ?? null) ?? $nowStr,
+            ];
+        }
+
+        if (!count($upsertsAll)) {
+            return response()->json(['success'=>true,'message'=>'No menus to sync','count'=>0], 200);
+        }
+
+        // --- 5) Urutkan & upsert per level ---
+        usort($upsertsAll, fn($a,$b) => ($a['level'] <=> $b['level']) ?: ($a['id'] <=> $b['id']));
+        $byLevel = [];
+        foreach ($upsertsAll as $row) {
+            $byLevel[$row['level']][] = $row;
+        }
+
+        DB::transaction(function () use ($byLevel, $codeOrId, $nowStr) {
+            ksort($byLevel);
+            foreach ($byLevel as $lv => $rows) {
+                DB::table('mst_menus')->upsert(
+                    $rows,
+                    ['id'],
+                    [
+                        'parent_id','level','type','title','icon','color',
+                        'order_number','crud_builder_id','product_code',
+                        'route_path','is_active','note','created_by',
+                        'deleted_at','updated_at','created_at',
+                    ]
+                );
+            }
+            // soft-delete yg hilang
+            $allIds = collect($byLevel)->flatten(1)->pluck('id')->all();
+            \App\Models\Menu::forProduct($codeOrId)
+                ->whereNotIn('id', $allIds)
+                ->update(['deleted_at' => $nowStr]);
+        });
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Menus synced',
+            'count'   => count($upsertsAll),
+        ], 200);
+
+    } catch (\Throwable $e) {
+        return response()->json(['success' => false, 'message' => 'Failed to sync menus: '.$e->getMessage()], 502);
+    }
+}
 
 }
+
+

@@ -318,6 +318,18 @@ export async function panelListMenusByProduct(
   if (!res.ok) return parseError(res);
   return res.json(); // { data: rows(item_type in MENU,SUBMENU) }
 }
+export async function panelSyncMenusByProduct(codeOrId: string) {
+  const res = await fetch(
+    `${API_URL}/catalog/products/${encodeURIComponent(codeOrId)}/menus/sync`,
+    {
+      method: "POST",
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    }
+  );
+  if (!res.ok) return parseError(res);
+  return res.json(); // { success, count }
+}
 // Tambahan helper: update harga parent feature (item_type=FEATURE saja)
 export async function panelUpdateParentFeaturePrice(
   productCodeOrId: string,

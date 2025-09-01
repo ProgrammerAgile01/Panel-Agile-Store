@@ -622,69 +622,181 @@ export function FeatureProductSplit() {
 
     return { global, modules };
   }
-
   function buildMenusFromMirror(rows: any[]): MenuGroup[] {
     if (!Array.isArray(rows) || rows.length === 0) return [];
 
-    // Guard: kalau data sebenarnya fitur, kosongkan tab Menus
-    const onlyFeatures = rows.every((r) => {
-      const t = String(r.type ?? r.item_type ?? "MENU").toUpperCase();
-      return t === "FEATURE" || t === "SUBFEATURE";
-    });
-    if (onlyFeatures) return [];
+    // ---- Helper: normalisasi type ----
+    const normType = (t: any): "GROUP" | "MODULE" | "MENU" | "SUBMENU" => {
+      const s = String(t ?? "menu").toUpperCase();
+      if (s === "GROUP") return "GROUP";
+      if (s === "MODULE") return "MODULE";
+      if (s === "SUBMENU") return "SUBMENU";
+      // fallback menu
+      return "MENU";
+    };
 
-    if (
-      rows.length &&
-      rows[0] &&
-      typeof rows[0] === "object" &&
-      "group" in rows[0] &&
-      "modules" in rows[0]
-    ) {
-      return rows as unknown as MenuGroup[];
+    // ---- Step 1: pastikan kita punya "flat nodes" (id, parent_id, type, title, etc) ----
+    type Node = {
+      id: string | number;
+      parent_id: string | number | null;
+      type: "GROUP" | "MODULE" | "MENU" | "SUBMENU";
+      title: string;
+      product_code?: string;
+      module_name?: string | null;
+    };
+
+    const flat: Node[] = [];
+
+    // a) Jika payload sudah flat → gunakan langsung.
+    const looksFlat =
+      rows.length > 0 &&
+      !("children" in (rows[0] ?? {})) &&
+      "id" in (rows[0] ?? {});
+
+    // b) Jika payload tree (ada "children") → DFS untuk meratakan.
+    const looksTree = rows.length > 0 && "children" in (rows[0] ?? {});
+
+    const pushFlat = (r: any) => {
+      flat.push({
+        id: r.id ?? r.code ?? crypto.randomUUID(),
+        parent_id:
+          r.parent_id != null
+            ? r.parent_id
+            : r.parent
+            ? r.parent.id ?? null
+            : null,
+        type: normType(r.type ?? r.item_type),
+        title: String(r.title ?? r.name ?? r.menu ?? "Menu"),
+        product_code: r.product_code,
+        module_name: r.module_name ?? r.module ?? null,
+      });
+    };
+
+    if (looksFlat) {
+      for (const r of rows) pushFlat(r);
+    } else if (looksTree) {
+      // traversal untuk tree → jadikan flat sambil bawa parent
+      const dfs = (node: any, parentId: any = null) => {
+        const n = {
+          id: node.id ?? node.code ?? crypto.randomUUID(),
+          parent_id: parentId,
+          type: normType(node.type ?? node.item_type),
+          title: String(node.title ?? node.name ?? "Menu"),
+          product_code: node.product_code,
+          module_name: node.module_name ?? node.module ?? null,
+        } as Node;
+        flat.push(n);
+        if (Array.isArray(node.children)) {
+          for (const ch of node.children) dfs(ch, n.id);
+        }
+      };
+      for (const root of rows) dfs(root, null);
+    } else {
+      // payload tak dikenal → kosongkan saja (biar aman, UI akan tampil "No menus mirrored")
+      return [];
     }
 
-    const modulesMap: Record<
-      string,
-      { menus: MenuItem[]; submenus: SubMenuItem[] }
-    > = {};
-    for (const r of rows || []) {
-      const type = String(r.type ?? r.item_type ?? "MENU").toUpperCase();
-      const moduleName: string = r.module_name ?? r.module ?? "General";
-      if (!modulesMap[moduleName])
-        modulesMap[moduleName] = { menus: [], submenus: [] };
-      if (type === "SUBMENU") {
-        modulesMap[moduleName].submenus.push({
-          menu: String(
-            r.parent_name ?? r.parent ?? r.menu ?? r.menu_title ?? ""
-          ),
-          id: String(r.id ?? r.code ?? Math.random()),
-          name: String(r.name ?? r.title ?? "Submenu"),
+    // Guard: Data ternyata fitur semua → kosongkan tab Menus
+    const onlyFeatures = flat.every((x) =>
+      x.type === "MENU" || x.type === "SUBMENU" ? false : false
+    );
+    // di versi sebelumnya guard ini salah kaprah (karena MENU/SUBMENU dianggap "FEATURE"),
+    // di sini kita tidak mematikannya—cukup lanjut proses.
+
+    // ---- Step 2: Index untuk menelusuri parent chain ----
+    const byId = new Map<string | number, Node>();
+    for (const n of flat) byId.set(n.id, n);
+
+    const getAncestorByType = (
+      start: Node,
+      want: "GROUP" | "MODULE" | "MENU"
+    ): Node | null => {
+      let cur: Node | null = start;
+      while (cur) {
+        if (cur.type === want) return cur;
+        cur =
+          cur.parent_id != null
+            ? (byId.get(cur.parent_id) as Node) ?? null
+            : null;
+      }
+      return null;
+    };
+
+    // ---- Step 3: susun ke struktur { group → modules[] → menus/submenus } ----
+    type ModuleBucket = {
+      name: string;
+      menus: MenuItem[];
+      submenus: SubMenuItem[];
+    };
+    const groupBuckets = new Map<
+      string, // group name
+      Map<string, ModuleBucket> // module name -> bucket
+    >();
+
+    for (const n of flat) {
+      if (n.type === "GROUP" || n.type === "MODULE") {
+        // node struktur, digunakan saat menurunkan anak-anak saja
+        continue;
+      }
+
+      // Tentukan group & module berdasar parent chain:
+      // - Group = ancestor bertype GROUP → .title, kalau tak ada: "General"
+      // - Module = ancestor bertype MODULE → .title, kalau tak ada: n.module_name || "General"
+      const groupNode = getAncestorByType(n, "GROUP");
+      const moduleNode = getAncestorByType(n, "MODULE");
+
+      const groupName =
+        (groupNode?.title?.trim() || "") !== "" ? groupNode!.title : "General";
+      const moduleName =
+        (moduleNode?.title?.trim() || "") !== ""
+          ? moduleNode!.title
+          : (n.module_name && String(n.module_name).trim()) || "General";
+
+      if (!groupBuckets.has(groupName)) groupBuckets.set(groupName, new Map());
+      const modulesMap = groupBuckets.get(groupName)!;
+
+      if (!modulesMap.has(moduleName)) {
+        modulesMap.set(moduleName, {
+          name: moduleName,
+          menus: [],
+          submenus: [],
         });
-      } else if (type === "MENU") {
-        modulesMap[moduleName].menus.push({
-          id: String(r.id ?? r.code ?? Math.random()),
-          name: String(r.name ?? r.title ?? "Menu"),
+      }
+      const bucket = modulesMap.get(moduleName)!;
+
+      if (n.type === "MENU") {
+        bucket.menus.push({ id: String(n.id), name: n.title });
+      } else if (n.type === "SUBMENU") {
+        // Cari parent menu terdekat untuk label "menu" di SubMenuItem
+        const parentMenu = getAncestorByType(n, "MENU");
+        const menuLabel = parentMenu?.title ?? "Menu";
+        bucket.submenus.push({
+          id: String(n.id),
+          name: n.title,
+          menu: menuLabel,
         });
       }
     }
-    return Object.entries(modulesMap).map(([mod, val]) => ({
-      group: mod,
-      modules: [
-        {
-          name: mod,
-          menus: val.menus,
-          submenus: val.submenus.length ? val.submenus : undefined,
-        },
-      ],
-    }));
-  }
 
-  function csv(v: any) {
-    const s = String(v ?? "");
-    if (s.includes(",") || s.includes('"') || s.includes("\n")) {
-      return `"${s.replace(/"/g, '""')}"`;
+    // ---- Step 4: ubah ke bentuk MenuGroup[] untuk UI kamu ----
+    const groups: MenuGroup[] = [];
+    for (const [gName, modMap] of groupBuckets.entries()) {
+      const modules: MenuModule[] = [];
+      for (const [, bucket] of modMap.entries()) {
+        modules.push({
+          name: bucket.name,
+          menus: bucket.menus,
+          submenus: bucket.submenus.length ? bucket.submenus : undefined,
+        });
+      }
+      // sort estetika (opsional, tidak memengaruhi UI lain)
+      modules.sort((a, b) => a.name.localeCompare(b.name));
+      groups.push({ group: gName, modules });
     }
-    return s;
+    // sort group juga (opsional)
+    groups.sort((a, b) => a.group.localeCompare(b.group));
+
+    return groups;
   }
 
   /* --------- UI (markup mayor tetap sama; hanya tambah tombol kecil & modal) --------- */
