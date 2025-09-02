@@ -21,7 +21,7 @@ class PackageMatrixController extends Controller
      *     "product": {...},
      *     "packages": [...],
      *     "features": [...], // item_type=FEATURE saja
-     *     "menus": [...],    // dari mst_menus
+     *     "menus": [...],    // dari mst_menus (leaf) + module_group & module
      *     "matrix": [ {product_code, package_id, item_type, item_id, enabled}, ... ]
      *   }
      * }
@@ -32,7 +32,7 @@ class PackageMatrixController extends Controller
             ->orWhere('id', $codeOrId)
             ->firstOrFail();
 
-        // Packages (tampilkan semua agar matrix utuh)
+        // PACKAGES (tampilkan semua agar matrix utuh)
         $packages = ProductPackage::query()
             ->where('product_code', $product->product_code)
             ->orderBy('order_number')->orderBy('id')
@@ -42,7 +42,7 @@ class PackageMatrixController extends Controller
                 'created_at','updated_at','deleted_at',
             ]);
 
-        // FEATURES (mirror)
+        // FEATURES (item_type = FEATURE saja)
         $features = ProductFeature::query()
             ->where('product_code', $product->product_code)
             ->where('item_type', 'FEATURE')
@@ -55,33 +55,64 @@ class PackageMatrixController extends Controller
                 'synced_at','created_at','updated_at',
             ]);
 
-        // MENUS — hanya daun (type = 'Menu')
-        $menusRaw = Menu::query()
-            ->where('product_code', $product->product_code)
-            ->where('type', 'Menu')               // <— penting: hanya leaf
-            ->orderBy('order_number')->orderBy('id')
-            ->get([
-                'id','parent_id','level','type','title','icon','color',
-                'order_number','crud_builder_id','product_code','route_path',
-                'is_active','note','created_by','created_at','updated_at','deleted_at',
-            ]);
+        /**
+         * MENUS — ambil hanya daun (type='Menu'), lalu self-join ke parent Module (md) dan Group (gp).
+         * Hasil: setiap row punya module_group, module, dan full_path "Group › Module › Menu".
+         */
+        $menus = DB::table('mst_menus as mn')
+            // parent 1: MODULE
+            ->leftJoin('mst_menus as md', function ($j) {
+                $j->on('md.id', '=', 'mn.parent_id')
+                  ->whereIn('md.type', ['Module', 'module']);
+            })
+            // parent 2: GROUP (parent dari MODULE)
+            ->leftJoin('mst_menus as gp', function ($j) {
+                $j->on('gp.id', '=', 'md.parent_id')
+                  ->whereIn('gp.type', ['Group', 'group']);
+            })
+            ->where('mn.product_code', $product->product_code)
+            ->whereIn('mn.type', ['Menu', 'menu']) // hanya leaf
+            ->select([
+                'mn.id',
+                'mn.parent_id',
+                'mn.level',
+                'mn.type',
+                'mn.title',
+                'mn.icon',
+                'mn.color',
+                'mn.order_number',
+                'mn.crud_builder_id',
+                'mn.product_code',
+                'mn.route_path',
+                'mn.is_active',
+                'mn.note',
+                'mn.created_by',
+                'mn.created_at',
+                'mn.updated_at',
+                'mn.deleted_at',
 
-        // Optional: build breadcrumb path (Group › Module › Menu)
-        $byId = $menusRaw->keyBy('id');
-        $makePath = function ($m) use (&$byId, &$makePath) {
-            $parts = [$m->title];
-            $p = $m->parent_id ? $byId->get($m->parent_id) : null;
-            while ($p) {
-                $parts[] = $p->title;
-                $p = $p->parent_id ? $byId->get($p->parent_id) : null;
-            }
-            return implode(' › ', array_reverse($parts));
-        };
+                // ✅ alias untuk FE (kelompok & modul)
+                DB::raw('COALESCE(gp.title, "General") as module_group'),
+                DB::raw('COALESCE(md.title, "General") as module'),
 
-        $menus = $menusRaw->map(function ($m) use ($makePath) {
-            $m->full_path = $makePath($m);  // contoh: "Master Data › Pegawai › Data Pegawai"
-            return $m;
-        })->values();
+                // ✅ untuk pengurutan stabil
+                DB::raw('COALESCE(gp.order_number, 0) as group_order'),
+                DB::raw('COALESCE(md.order_number, 0) as module_order'),
+                DB::raw('COALESCE(mn.order_number, 0) as menu_order'),
+            ])
+            ->orderBy('group_order')
+            ->orderBy('module_order')
+            ->orderBy('menu_order')
+            ->orderBy('mn.id')
+            ->get()
+            ->map(function ($m) {
+                // Tambahkan full_path "Group › Module › Menu" (opsional, bantu debug/print)
+                $g = $m->module_group ?: 'General';
+                $d = $m->module ?: 'General';
+                $t = $m->title ?: '';
+                $m->full_path = "{$g} › {$d} › {$t}";
+                return $m;
+            });
 
         // MATRIX
         $matrix = DB::table('mst_package_matrix')
@@ -94,12 +125,11 @@ class PackageMatrixController extends Controller
                 'product'  => $product,
                 'packages' => $packages,
                 'features' => $features,
-                'menus'    => $menus,   // pastikan kolom 'title' + 'full_path' ada
+                'menus'    => $menus,   // ← sudah berisi module_group & module
                 'matrix'   => $matrix,
             ],
         ]);
     }
-
 
     /**
      * POST /api/catalog/products/{codeOrId}/matrix/bulk  (JWT)

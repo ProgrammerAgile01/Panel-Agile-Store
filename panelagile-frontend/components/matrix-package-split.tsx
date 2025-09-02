@@ -73,6 +73,8 @@ interface Feature {
   id: string; // feature: pakai code/id; menu: pakai id
   name: string;
   module: string;
+  /** ✅ BARU: nama kelompok modul untuk MENUS */
+  moduleGroup?: string;
   type: "feature" | "menu";
   icon: any;
   description?: string;
@@ -100,10 +102,7 @@ export function MatrixPackageSplit() {
   const [packages, setPackages] = useState<Package[]>([]);
   const [featuresAndMenus, setFeaturesAndMenus] = useState<Feature[]>([]);
   const [matrixData, setMatrixData] = useState<
-    Record<
-      string /* product_code */,
-      Record<string /* featureId-pkgId */, MatrixCell>
-    >
+    Record<string, Record<string, MatrixCell>>
   >({});
 
   // ====== UI states ======
@@ -193,10 +192,15 @@ export function MatrixPackageSplit() {
             icon: resolveIcon("feature", f.name),
             description: f.description ?? "",
           })) as Feature[]),
+
+          // ✅ MENUS: isi moduleGroup & module bila tersedia
           ...((data.menus || []).map((m: any) => ({
             id: String(m.id),
             name: String(m.title ?? m.name ?? "Menu"),
-            module: "", // menu tidak pakai module
+            module: String(m.module ?? m.module_name ?? "General"),
+            moduleGroup: String(
+              m.module_group ?? m.group ?? m.group_name ?? "General"
+            ),
             type: "menu" as const,
             icon: resolveIcon("menu", m.name || m.title),
             description: m.note ?? m.description ?? "",
@@ -260,7 +264,8 @@ export function MatrixPackageSplit() {
       const searchLower = debouncedSearch.toLowerCase();
       return (
         feature.name.toLowerCase().includes(searchLower) ||
-        feature.module.toLowerCase().includes(searchLower) ||
+        (feature.module || "").toLowerCase().includes(searchLower) ||
+        (feature.moduleGroup || "").toLowerCase().includes(searchLower) ||
         (feature.subpath || "").toLowerCase().includes(searchLower)
       );
     }
@@ -273,30 +278,79 @@ export function MatrixPackageSplit() {
     return true;
   });
 
-  const groupedFeatures = groupByModule
-    ? filteredFeatures.reduce((acc, feature) => {
-        const mod = feature.module || "General";
-        if (!acc[mod]) acc[mod] = [];
-        acc[mod].push(feature);
-        return acc;
-      }, {} as Record<string, Feature[]>)
-    : { All: filteredFeatures };
+  // === Grouping ===
+  // Features: single level (module) seperti sebelumnya
+  const groupedFeaturesOneLevel: Record<string, Feature[]> = filteredFeatures
+    .filter((f) => f.type === "feature")
+    .reduce((acc, feature) => {
+      const mod = feature.module || "General";
+      (acc[mod] ||= []).push(feature);
+      return acc;
+    }, {} as Record<string, Feature[]>);
 
-  const finalGroupedFeatures = showOnlyDifferences
-    ? Object.entries(groupedFeatures).reduce((acc, [module, features]) => {
-        const fx = features.filter((feature) => {
+  // Menus: TWO LEVEL => moduleGroup -> module -> items
+  const groupedMenusTwoLevel: Record<
+    string,
+    Record<string, Feature[]>
+  > = filteredFeatures
+    .filter((f) => f.type === "menu")
+    .reduce((acc, item) => {
+      const g = item.moduleGroup || "General";
+      const m = item.module || "General";
+      acc[g] ||= {};
+      acc[g][m] ||= [];
+      acc[g][m].push(item);
+      return acc;
+    }, {} as Record<string, Record<string, Feature[]>>);
+
+  // Jika user aktifkan "Show only differences", filter masing2 group
+  const applyOnlyDifferencesToFeatures = (
+    base: Record<string, Feature[]>
+  ): Record<string, Feature[]> => {
+    if (!showOnlyDifferences || !selectedProduct) return base;
+    const pcode = selectedProduct.product_code;
+    const result: Record<string, Feature[]> = {};
+    Object.entries(base).forEach(([mod, items]) => {
+      const kept = items.filter((item) => {
+        const values = filteredPackages.map((pkg) => {
+          const key = `${item.id}-${pkg.id}`;
+          return matrixData[pcode]?.[key]?.enabled || false;
+        });
+        return !values.every((v) => v === values[0]);
+      });
+      if (kept.length) result[mod] = kept;
+    });
+    return result;
+  };
+
+  const applyOnlyDifferencesToMenus = (
+    base: Record<string, Record<string, Feature[]>>
+  ): Record<string, Record<string, Feature[]>> => {
+    if (!showOnlyDifferences || !selectedProduct) return base;
+    const pcode = selectedProduct.product_code;
+    const res: Record<string, Record<string, Feature[]>> = {};
+    Object.entries(base).forEach(([group, modules]) => {
+      Object.entries(modules).forEach(([mod, items]) => {
+        const kept = items.filter((item) => {
           const values = filteredPackages.map((pkg) => {
-            const key = `${feature.id}-${pkg.id}`;
-            return (
-              matrixData[selectedProduct!.product_code]?.[key]?.enabled || false
-            );
+            const key = `${item.id}-${pkg.id}`;
+            return matrixData[pcode]?.[key]?.enabled || false;
           });
           return !values.every((v) => v === values[0]);
         });
-        if (fx.length) acc[module] = fx;
-        return acc;
-      }, {} as Record<string, Feature[]>)
-    : groupedFeatures;
+        if (kept.length) {
+          res[group] ||= {};
+          res[group][mod] = kept;
+        }
+      });
+    });
+    return res;
+  };
+
+  const finalFeaturesGroups = applyOnlyDifferencesToFeatures(
+    groupedFeaturesOneLevel
+  );
+  const finalMenusGroups = applyOnlyDifferencesToMenus(groupedMenusTwoLevel);
 
   // ====== Mutators ======
   const toggleCell = useCallback(
@@ -471,8 +525,7 @@ export function MatrixPackageSplit() {
     [selectedProduct, packages, matrixData]
   );
 
-  // ====== Preview Helpers (BARU) ======
-  // Ambil item untuk preview (tidak tergantung viewMode)
+  // ====== Preview Helpers (BARU, ikut 2 level untuk menus) ======
   const getPreviewItems = useCallback(
     (kind: "features" | "menus") => {
       const base = featuresAndMenus.filter((f) =>
@@ -484,6 +537,7 @@ export function MatrixPackageSplit() {
           (f) =>
             f.name.toLowerCase().includes(q) ||
             (f.module || "").toLowerCase().includes(q) ||
+            (f.moduleGroup || "").toLowerCase().includes(q) ||
             (f.subpath || "").toLowerCase().includes(q)
         );
       }
@@ -492,22 +546,36 @@ export function MatrixPackageSplit() {
     [featuresAndMenus, debouncedSearch]
   );
 
-  // Cetak tabel untuk print/preview (BARU)
   const renderPrintTable = (items: Feature[]) => {
     if (!selectedProduct) return null;
 
     const isMenusTable = items.every((it) => it.type === "menu");
     const leftHeader = isMenusTable ? "Menus" : "Features";
 
-    // Grouping hanya untuk FEATURES
-    const grouped: Record<string, Feature[]> =
-      isMenusTable || !groupByModule
-        ? { All: items }
-        : items.reduce((acc, f) => {
-            const mod = f.module || "General";
-            (acc[mod] ||= []).push(f);
-            return acc;
-          }, {} as Record<string, Feature[]>);
+    // ✅ Grouping:
+    // - Features: 1 level (module)
+    // - Menus   : 2 level (moduleGroup -> module)
+    const groupedOneLevel: Record<string, Feature[]> = !isMenusTable
+      ? items.reduce((acc, f) => {
+          const mod = f.module || "General";
+          (acc[mod] ||= []).push(f);
+          return acc;
+        }, {} as Record<string, Feature[]>)
+      : {};
+
+    const groupedTwoLevel: Record<
+      string,
+      Record<string, Feature[]>
+    > = isMenusTable
+      ? items.reduce((acc, it) => {
+          const g = it.moduleGroup || "General";
+          const m = it.module || "General";
+          acc[g] ||= {};
+          acc[g][m] ||= [];
+          acc[g][m].push(it);
+          return acc;
+        }, {} as Record<string, Record<string, Feature[]>>)
+      : {};
 
     return (
       <table className="w-full border-collapse border border-gray-300">
@@ -528,92 +596,78 @@ export function MatrixPackageSplit() {
         </thead>
 
         <tbody>
-          {Object.entries(grouped).map(([groupName, rows]) => (
-            <React.Fragment key={groupName}>
-              {/* Group header khusus Features */}
-              {!isMenusTable && printOptions.includeGroups && (
-                <tr className="bg-gray-50 dark:bg-gray-700 break-inside-avoid">
-                  <td
-                    colSpan={filteredPackages.length + 1}
-                    className="border border-gray-300 p-2 font-medium"
-                  >
-                    📁 {groupName}
-                  </td>
-                </tr>
-              )}
+          {!isMenusTable &&
+            Object.entries(groupedOneLevel).map(([groupName, rows]) => (
+              <React.Fragment key={groupName}>
+                {printOptions.includeGroups && (
+                  <tr className="bg-gray-50 dark:bg-gray-700 break-inside-avoid">
+                    <td
+                      colSpan={filteredPackages.length + 1}
+                      className="border border-gray-300 p-2 font-medium"
+                    >
+                      📁 {groupName}
+                    </td>
+                  </tr>
+                )}
+                {rows.map((item) => (
+                  <PrintRow
+                    key={item.id}
+                    item={item}
+                    isMenus={false}
+                    packages={filteredPackages}
+                    matrixData={matrixData[selectedProduct.product_code] || {}}
+                    compact={printOptions.compactRows}
+                  />
+                ))}
+              </React.Fragment>
+            ))}
 
-              {rows.map((item) => (
-                <tr
-                  key={item.id}
-                  className={`${
-                    printOptions.compactRows ? "h-8" : "h-12"
-                  } break-inside-avoid`}
-                >
-                  <td className="border border-gray-300 p-3 sticky left-0 bg-white dark:bg-gray-900">
-                    <div className="flex items-start gap-2">
-                      <Badge variant="outline" className="text-xs">
-                        {item.type}
-                      </Badge>
-                      <div className="min-w-0">
-                        <div className="font-medium truncate">{item.name}</div>
-
-                        {item.description && (
-                          <div className="text-xs text-gray-500 mt-1">
-                            {item.description}
-                          </div>
-                        )}
-
-                        {isMenusTable && item.subpath && (
-                          <div className="text-[11px] text-gray-500 mt-0.5 break-all">
-                            {item.subpath}
-                          </div>
-                        )}
-
-                        {!isMenusTable && (item.module || "") && (
-                          <div className="mt-1">
-                            <Badge
-                              variant="outline"
-                              className="text-[10px] px-1.5 py-0.5 rounded"
-                            >
-                              {item.module || "General"}
-                            </Badge>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </td>
-
-                  {filteredPackages.map((pkg) => {
-                    const enabled =
-                      matrixData[selectedProduct.product_code]?.[
-                        `${item.id}-${pkg.id}`
-                      ]?.enabled || false;
-
-                    return (
-                      <td
-                        key={String(pkg.id)}
-                        className="border border-gray-300 p-3 text-center"
-                      >
-                        <div className="flex items-center justify-center">
-                          {enabled ? (
-                            <span className="text-green-600 text-lg">✅</span>
-                          ) : (
-                            <span className="text-gray-400 text-lg">❌</span>
-                          )}
-                        </div>
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
-            </React.Fragment>
-          ))}
+          {isMenusTable &&
+            Object.entries(groupedTwoLevel).map(([gName, modules]) => (
+              <React.Fragment key={gName}>
+                {printOptions.includeGroups && (
+                  <tr className="bg-gray-50 dark:bg-gray-700 break-inside-avoid">
+                    <td
+                      colSpan={filteredPackages.length + 1}
+                      className="border border-gray-300 p-2 font-medium"
+                    >
+                      📦 Kelompok: {gName}
+                    </td>
+                  </tr>
+                )}
+                {Object.entries(modules).map(([mName, rows]) => (
+                  <React.Fragment key={mName}>
+                    {printOptions.includeGroups && (
+                      <tr className="bg-gray-100 dark:bg-gray-800 break-inside-avoid">
+                        <td
+                          colSpan={filteredPackages.length + 1}
+                          className="border border-gray-300 p-2"
+                        >
+                          🧩 Modul: {mName}
+                        </td>
+                      </tr>
+                    )}
+                    {rows.map((item) => (
+                      <PrintRow
+                        key={item.id}
+                        item={item}
+                        isMenus={true}
+                        packages={filteredPackages}
+                        matrixData={
+                          matrixData[selectedProduct.product_code] || {}
+                        }
+                        compact={printOptions.compactRows}
+                      />
+                    ))}
+                  </React.Fragment>
+                ))}
+              </React.Fragment>
+            ))}
         </tbody>
       </table>
     );
   };
 
-  // ====== Preview/Print ======
   const openPreview = () => {
     if (hasChanges) {
       if (confirm("You have unsaved changes. Save before preview?")) {
@@ -900,7 +954,10 @@ export function MatrixPackageSplit() {
                   Go to Package Product
                 </Button>
               </div>
-            ) : Object.keys(finalGroupedFeatures).length === 0 ? (
+            ) : (viewMode === "features" &&
+                Object.keys(finalFeaturesGroups).length === 0) ||
+              (viewMode === "menus" &&
+                Object.keys(finalMenusGroups).length === 0) ? (
               <div className="flex flex-col items-center justify-center h-full p-8">
                 <Grid3X3 className="h-16 w-16 text-muted-foreground/50 mb-4" />
                 <h3 className="text-lg font-semibold mb-2">No data</h3>
@@ -975,150 +1032,86 @@ export function MatrixPackageSplit() {
                   </thead>
 
                   <tbody>
-                    {Object.entries(finalGroupedFeatures).map(
-                      ([module, features]) => (
-                        <React.Fragment key={module}>
-                          {groupByModule && (
-                            <tr className="bg-gray-50 dark:bg-gray-700">
-                              <td
-                                colSpan={filteredPackages.length + 1}
-                                className="border border-slate-300 dark:border-slate-700 p-2 font-medium text-gray-700 dark:text-gray-300"
-                              >
-                                📁 {module}
-                              </td>
-                            </tr>
-                          )}
-
-                          {features.map((feature) => {
-                            const IconComponent = feature.icon || PackageIcon;
-                            const isSelected = selectedRows.includes(
-                              feature.id
-                            );
-                            const hasDependencyIssues =
-                              !checkDependencies(feature);
-                            return (
-                              <tr
-                                key={feature.id}
-                                className="h-12 hover:bg-slate-50 dark:hover:bg-slate-800/50"
-                              >
-                                <td className="border border-slate-300 dark:border-slate-700 p-3 sticky left-0 bg-white dark:bg-slate-900">
-                                  <div className="flex items-center gap-3">
-                                    <Checkbox
-                                      checked={isSelected}
-                                      onCheckedChange={(checked) => {
-                                        if (checked)
-                                          setSelectedRows([
-                                            ...selectedRows,
-                                            feature.id,
-                                          ]);
-                                        else
-                                          setSelectedRows(
-                                            selectedRows.filter(
-                                              (id) => id !== feature.id
-                                            )
-                                          );
-                                      }}
-                                    />
-                                    <div className="flex items-center gap-2">
-                                      <IconComponent className="h-4 w-4 text-primary flex-shrink-0" />
-                                      <div className="flex flex-col min-w-0">
-                                        <Tooltip>
-                                          <TooltipTrigger asChild>
-                                            <button
-                                              className="text-left font-medium text-sm hover:text-primary transition-colors truncate"
-                                              onClick={() => {
-                                                setSelectedFeature(feature);
-                                                setDetailDrawerOpen(true);
-                                              }}
-                                            >
-                                              {feature.name}
-                                            </button>
-                                          </TooltipTrigger>
-                                          <TooltipContent>
-                                            <div className="text-sm">
-                                              <div className="font-semibold">
-                                                {feature.name}
-                                              </div>
-                                              {feature.description && (
-                                                <div className="text-slate-600 dark:text-slate-400">
-                                                  {feature.description}
-                                                </div>
-                                              )}
-                                            </div>
-                                          </TooltipContent>
-                                        </Tooltip>
-                                        <div className="flex items-center gap-2 mt-1">
-                                          <Badge
-                                            variant="outline"
-                                            className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-400"
-                                          >
-                                            {feature.module || "General"}
-                                          </Badge>
-                                          <Badge
-                                            variant="outline"
-                                            className="text-xs px-2 py-0.5 rounded-full"
-                                          >
-                                            {feature.type}
-                                          </Badge>
-                                          {hasDependencyIssues && (
-                                            <Badge
-                                              variant="destructive"
-                                              className="text-xs px-2 py-0.5 rounded-full"
-                                            >
-                                              Dependency
-                                            </Badge>
-                                          )}
-                                        </div>
-                                      </div>
-                                    </div>
-                                  </div>
+                    {/* ===== FEATURES: 1 level ===== */}
+                    {viewMode === "features" &&
+                      Object.entries(finalFeaturesGroups).map(
+                        ([module, features]) => (
+                          <React.Fragment key={module}>
+                            {groupByModule && (
+                              <tr className="bg-gray-50 dark:bg-gray-700">
+                                <td
+                                  colSpan={filteredPackages.length + 1}
+                                  className="border border-slate-300 dark:border-slate-700 p-2 font-medium text-gray-700 dark:text-gray-300"
+                                >
+                                  📁 {module}
                                 </td>
-
-                                {filteredPackages.map((pkg) => {
-                                  const key = `${feature.id}-${pkg.id}`;
-                                  const cell =
-                                    matrixData[selectedProduct.product_code]?.[
-                                      key
-                                    ];
-                                  const isEnabled = cell?.enabled || false;
-                                  const isDraft = cell?.isDraft || false;
-                                  return (
-                                    <td
-                                      key={String(pkg.id)}
-                                      className="border border-slate-300 dark:border-slate-700 p-3 text-center"
-                                    >
-                                      <div className="flex flex-col items-center gap-1">
-                                        <button
-                                          onClick={() =>
-                                            toggleCell(feature.id, pkg.id)
-                                          }
-                                          className="text-lg hover:scale-110 transition-transform"
-                                        >
-                                          {isEnabled ? (
-                                            <span className="text-green-600">
-                                              ✅
-                                            </span>
-                                          ) : (
-                                            <span className="text-red-500">
-                                              ❌
-                                            </span>
-                                          )}
-                                        </button>
-                                        {isDraft && (
-                                          <span className="text-xs text-amber-600 bg-amber-100 dark:bg-amber-900/20 px-1 rounded">
-                                            Draft
-                                          </span>
-                                        )}
-                                      </div>
-                                    </td>
-                                  );
-                                })}
                               </tr>
-                            );
-                          })}
-                        </React.Fragment>
-                      )
-                    )}
+                            )}
+
+                            {features.map((feature) =>
+                              renderMatrixRow({
+                                feature,
+                                selectedRows,
+                                setSelectedRows,
+                                filteredPackages,
+                                selectedProduct,
+                                matrixData,
+                                checkDependencies,
+                                toggleCell,
+                              })
+                            )}
+                          </React.Fragment>
+                        )
+                      )}
+
+                    {/* ===== MENUS: 2 level (Kelompok -> Modul) ===== */}
+                    {viewMode === "menus" &&
+                      Object.entries(finalMenusGroups).map(
+                        ([groupName, modules]) => (
+                          <React.Fragment key={groupName}>
+                            {groupByModule && (
+                              <tr className="bg-gray-50 dark:bg-gray-700">
+                                <td
+                                  colSpan={filteredPackages.length + 1}
+                                  className="border border-slate-300 dark:border-slate-700 p-2 font-medium text-gray-700 dark:text-gray-300"
+                                >
+                                  📦 Kelompok: {groupName}
+                                </td>
+                              </tr>
+                            )}
+
+                            {Object.entries(modules).map(
+                              ([moduleName, items]) => (
+                                <React.Fragment key={moduleName}>
+                                  {groupByModule && (
+                                    <tr className="bg-gray-100 dark:bg-gray-800">
+                                      <td
+                                        colSpan={filteredPackages.length + 1}
+                                        className="border border-slate-300 dark:border-slate-700 p-2 text-gray-700 dark:text-gray-300 text-sm font-normal"
+                                      >
+                                        🧩 Modul: {moduleName}
+                                      </td>
+                                    </tr>
+                                  )}
+
+                                  {items.map((feature) =>
+                                    renderMatrixRow({
+                                      feature,
+                                      selectedRows,
+                                      setSelectedRows,
+                                      filteredPackages,
+                                      selectedProduct,
+                                      matrixData,
+                                      checkDependencies,
+                                      toggleCell,
+                                    })
+                                  )}
+                                </React.Fragment>
+                              )
+                            )}
+                          </React.Fragment>
+                        )
+                      )}
                   </tbody>
                 </table>
               </div>
@@ -1137,6 +1130,9 @@ export function MatrixPackageSplit() {
                 {selectedFeature?.name}
               </div>
               <div className="text-sm text-muted-foreground">
+                {selectedFeature?.moduleGroup
+                  ? `${selectedFeature?.moduleGroup} • `
+                  : ""}
                 {selectedFeature?.module || "General"} • {selectedFeature?.type}
               </div>
             </SheetHeader>
@@ -1436,5 +1432,190 @@ export function MatrixPackageSplit() {
         }
       `}</style>
     </TooltipProvider>
+  );
+}
+
+/** ===== Helper row renderer (supaya tidak mengubah UI lainnya) ===== */
+function renderMatrixRow({
+  feature,
+  selectedRows,
+  setSelectedRows,
+  filteredPackages,
+  selectedProduct,
+  matrixData,
+  checkDependencies,
+  toggleCell,
+}: {
+  feature: Feature;
+  selectedRows: string[];
+  setSelectedRows: (v: string[]) => void;
+  filteredPackages: Package[];
+  selectedProduct: Product;
+  matrixData: Record<string, Record<string, MatrixCell>>;
+  checkDependencies: (f: Feature) => boolean;
+  toggleCell: (featureId: string, packageId: string | number) => void;
+}) {
+  const IconComponent = feature.icon || PackageIcon;
+  const isSelected = selectedRows.includes(feature.id);
+  const hasDependencyIssues = !checkDependencies(feature);
+
+  return (
+    <tr
+      key={feature.id}
+      className="h-12 hover:bg-slate-50 dark:hover:bg-slate-800/50"
+    >
+      <td className="border border-slate-300 dark:border-slate-700 p-3 sticky left-0 bg-white dark:bg-slate-900">
+        <div className="flex items-center gap-3">
+          <Checkbox
+            checked={isSelected}
+            onCheckedChange={(checked) => {
+              if (checked) setSelectedRows([...selectedRows, feature.id]);
+              else
+                setSelectedRows(selectedRows.filter((id) => id !== feature.id));
+            }}
+          />
+          <div className="flex items-center gap-2">
+            <IconComponent className="h-4 w-4 text-primary flex-shrink-0" />
+            <div className="flex flex-col min-w-0">
+              <div className="text-left font-medium text-sm truncate">
+                {feature.name}
+              </div>
+              <div className="flex items-center gap-2 mt-1">
+                {feature.moduleGroup && (
+                  <Badge
+                    variant="outline"
+                    className="text-xs px-2 py-0.5 rounded-full"
+                  >
+                    {feature.moduleGroup}
+                  </Badge>
+                )}
+                <Badge
+                  variant="outline"
+                  className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-400"
+                >
+                  {feature.module || "General"}
+                </Badge>
+                <Badge
+                  variant="outline"
+                  className="text-xs px-2 py-0.5 rounded-full"
+                >
+                  {feature.type}
+                </Badge>
+                {hasDependencyIssues && (
+                  <Badge
+                    variant="destructive"
+                    className="text-xs px-2 py-0.5 rounded-full"
+                  >
+                    Dependency
+                  </Badge>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </td>
+
+      {filteredPackages.map((pkg) => {
+        const key = `${feature.id}-${pkg.id}`;
+        const cell = matrixData[selectedProduct.product_code]?.[key];
+        const isEnabled = cell?.enabled || false;
+        const isDraft = cell?.isDraft || false;
+        return (
+          <td
+            key={String(pkg.id)}
+            className="border border-slate-300 dark:border-slate-700 p-3 text-center"
+          >
+            <div className="flex flex-col items-center gap-1">
+              <button
+                onClick={() => toggleCell(feature.id, pkg.id)}
+                className="text-lg hover:scale-110 transition-transform"
+              >
+                {isEnabled ? (
+                  <span className="text-green-600">✅</span>
+                ) : (
+                  <span className="text-red-500">❌</span>
+                )}
+              </button>
+              {isDraft && (
+                <span className="text-xs text-amber-600 bg-amber-100 dark:bg-amber-900/20 px-1 rounded">
+                  Draft
+                </span>
+              )}
+            </div>
+          </td>
+        );
+      })}
+    </tr>
+  );
+}
+
+/** ===== Row for Print Table ===== */
+function PrintRow({
+  item,
+  isMenus,
+  packages,
+  matrixData,
+  compact,
+}: {
+  item: Feature;
+  isMenus: boolean;
+  packages: Package[];
+  matrixData: Record<string, MatrixCell>;
+  compact: boolean;
+}) {
+  return (
+    <tr className={`${compact ? "h-8" : "h-12"} break-inside-avoid`}>
+      <td className="border border-gray-300 p-3 sticky left-0 bg-white dark:bg-gray-900">
+        <div className="flex items-start gap-2">
+          <Badge variant="outline" className="text-xs">
+            {item.type}
+          </Badge>
+          <div className="min-w-0">
+            <div className="font-medium truncate">{item.name}</div>
+
+            {item.description && (
+              <div className="text-xs text-gray-500 mt-1">
+                {item.description}
+              </div>
+            )}
+
+            {isMenus && item.subpath && (
+              <div className="text-[11px] text-gray-500 mt-0.5 break-all">
+                {item.subpath}
+              </div>
+            )}
+
+            {!isMenus && (item.module || "") && (
+              <div className="mt-1">
+                <Badge
+                  variant="outline"
+                  className="text-[10px] px-1.5 py-0.5 rounded"
+                >
+                  {item.module || "General"}
+                </Badge>
+              </div>
+            )}
+          </div>
+        </div>
+      </td>
+
+      {packages.map((pkg) => {
+        const enabled = matrixData[`${item.id}-${pkg.id}`]?.enabled || false;
+        return (
+          <td
+            key={String(pkg.id)}
+            className="border border-gray-300 p-3 text-center"
+          >
+            <div className="flex items-center justify-center">
+              {enabled ? (
+                <span className="text-green-600 text-lg">✅</span>
+              ) : (
+                <span className="text-gray-400 text-lg">❌</span>
+              )}
+            </div>
+          </td>
+        );
+      })}
+    </tr>
   );
 }
