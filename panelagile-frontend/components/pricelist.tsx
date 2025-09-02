@@ -54,8 +54,9 @@ import {
   upsertPricelistItems,
   type PricelistDTO,
 } from "@/lib/api";
+import { toast } from "@/hooks/use-toast";
 
-// ================== Tipe lokal UI (SAMA DENGAN VERSI KAMU) ==================
+// ================== Tipe lokal UI ==================
 interface Product {
   id: string;
   name: string;
@@ -125,7 +126,6 @@ export function Pricelist() {
     (async () => {
       try {
         const rows = await listCatalogProductsSlim();
-        // jadikan struktur Product (sementara tanpa packages/durations)
         const mapped: Product[] = rows.map((r) => ({
           id: r.id,
           name: r.name,
@@ -162,7 +162,6 @@ export function Pricelist() {
           code
         );
 
-        // inject ke selectedProduct (tanpa ubah UI)
         const sp: Product = {
           ...selectedProduct,
           packages: packages.map((p) => ({
@@ -181,7 +180,6 @@ export function Pricelist() {
         };
         setSelectedProduct(sp);
 
-        // set header currency/tax + items ke state komponen
         const dto: PricelistDTO = pricelist;
         setCurrency(dto.currency || "IDR");
         setTaxMode(dto.tax_mode || "inclusive");
@@ -209,9 +207,9 @@ export function Pricelist() {
         setIsLoading(false);
       }
     })();
-  }, [selectedProduct?.id]); // trigger ketika product berbeda dipilih
+  }, [selectedProduct?.id]);
 
-  // ------------------ UTILITIES (SAMA) ------------------
+  // ------------------ UTILITIES ------------------
   const filteredDurations =
     selectedProduct?.durations.filter(
       (duration) =>
@@ -229,7 +227,7 @@ export function Pricelist() {
     }
     return new Intl.NumberFormat("en-US", {
       style: "currency",
-      currency: currency,
+      currency,
       minimumFractionDigits: 0,
     }).format(amount);
   };
@@ -263,7 +261,6 @@ export function Pricelist() {
 
   const copyPackagePrices = (fromPackageId: string, toPackageId: string) => {
     if (!selectedProduct) return;
-
     const newItems = [...pricelistData.items];
     selectedProduct.durations.forEach((duration) => {
       const sourcePrice = getPrice(duration.id, fromPackageId);
@@ -287,14 +284,12 @@ export function Pricelist() {
         }
       }
     });
-
     setPricelistData({ ...pricelistData, items: newItems });
     setHasUnsavedChanges(true);
   };
 
   const adjustPackagePrices = (packageId: string, percentage: number) => {
     if (!selectedProduct) return;
-
     const newItems = [...pricelistData.items];
     selectedProduct.durations.forEach((duration) => {
       const currentPrice = getPrice(duration.id, packageId);
@@ -304,7 +299,6 @@ export function Pricelist() {
           (item) =>
             item.duration_id === duration.id && item.package_id === packageId
         );
-
         if (existingIndex >= 0) {
           newItems[existingIndex] = {
             ...newItems[existingIndex],
@@ -313,14 +307,12 @@ export function Pricelist() {
         }
       }
     });
-
     setPricelistData({ ...pricelistData, items: newItems });
     setHasUnsavedChanges(true);
   };
 
   const roundPackagePrices = (packageId: string, roundTo: number) => {
     if (!selectedProduct) return;
-
     const newItems = [...pricelistData.items];
     selectedProduct.durations.forEach((duration) => {
       const currentPrice = getPrice(duration.id, packageId);
@@ -330,7 +322,6 @@ export function Pricelist() {
           (item) =>
             item.duration_id === duration.id && item.package_id === packageId
         );
-
         if (existingIndex >= 0) {
           newItems[existingIndex] = {
             ...newItems[existingIndex],
@@ -339,14 +330,12 @@ export function Pricelist() {
         }
       }
     });
-
     setPricelistData({ ...pricelistData, items: newItems });
     setHasUnsavedChanges(true);
   };
 
   const fillRow = (durationId: string, price: number) => {
     if (!selectedProduct) return;
-
     const newItems = [...pricelistData.items];
     selectedProduct.packages.forEach((pkg) => {
       const existingIndex = newItems.findIndex(
@@ -371,7 +360,6 @@ export function Pricelist() {
 
   const fillEmptyWithZero = () => {
     if (!selectedProduct) return;
-
     const newItems = [...pricelistData.items];
     selectedProduct.durations.forEach((duration) => {
       selectedProduct.packages.forEach((pkg) => {
@@ -389,19 +377,17 @@ export function Pricelist() {
         }
       });
     });
-
     setPricelistData({ ...pricelistData, items: newItems });
     setHasUnsavedChanges(true);
   };
 
-  // ------------------ SAVE: KIRIM BULK UPSERT ------------------
+  // ------------------ SAVE ------------------
   const handleSave = async () => {
     if (!selectedProduct) return;
     try {
       const payload: PricelistDTO = {
         currency,
         tax_mode: taxMode,
-        // pastikan id string — backend menerima id atau code
         items: pricelistData.items.map((it) => ({
           duration_id: it.duration_id,
           package_id: it.package_id,
@@ -416,14 +402,34 @@ export function Pricelist() {
 
       const code = selectedProduct.product_code || selectedProduct.id;
       await upsertPricelistItems(code, payload);
+
       setHasUnsavedChanges(false);
-    } catch (e) {
+      toast({
+        title: "Pricelist saved",
+        description: "Perubahan harga berhasil disimpan.",
+      });
+    } catch (e: any) {
       console.error("Save pricelist error:", e);
-      // kamu bisa tampilkan toast di sini kalau sudah pakai lib toast
+      toast({
+        title: "Gagal menyimpan",
+        description: e?.message || "Periksa koneksi/JWT Anda.",
+        variant: "destructive",
+      });
     }
   };
 
-  // ------------------ UI (TIDAK DIUBAH) ------------------
+  // ------------------ Warn before closing tab when unsaved ------------------
+  useEffect(() => {
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (!hasUnsavedChanges) return;
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [hasUnsavedChanges]);
+
+  // ------------------ UI ------------------
   return (
     <TooltipProvider>
       <div
@@ -526,12 +532,10 @@ export function Pricelist() {
           id="priceContent"
           className="min-w-0 bg-white dark:bg-slate-950 border-l border-slate-200/60 dark:border-slate-800"
           style={{
-            marginLeft: "0",
-            paddingLeft: "320px",
-            minWidth: "100vw",
-            width: "100vw",
-            padding: "0 24px 24px 320px",
-            overflowX: "hidden",
+            marginLeft: "300px",
+            padding: "0 24px 24px",
+            width: "calc(100% - 300px)",
+            overflowX: "auto",
           }}
         >
           {!selectedProduct ? (
@@ -709,52 +713,56 @@ export function Pricelist() {
                 </div>
               </div>
 
-              {/* Bulk Tools */}
-              <div className="border-b border-border p-4">
-                <div className="flex items-center justify-between">
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <Info className="h-4 w-4" />
-                        <span>
-                          Harga akhir = price ± discount. Tax dihitung sesuai
-                          mode.
-                        </span>
-                      </div>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p>
-                        Final price calculation includes discounts and tax based
-                        on selected mode
-                      </p>
-                    </TooltipContent>
-                  </Tooltip>
+              {/* Bulk Tools → hanya di Advanced */}
+              {viewMode === "advanced" && (
+                <div className="border-b border-border p-4">
+                  <div className="flex items-center justify-between">
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <Info className="h-4 w-4" />
+                          <span>
+                            Harga akhir = price ± discount. Tax dihitung sesuai
+                            mode.
+                          </span>
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>
+                          Final price calculation includes discounts and tax
+                          based on selected mode
+                        </p>
+                      </TooltipContent>
+                    </Tooltip>
 
-                  <div className="flex items-center gap-2">
-                    <Button variant="outline" size="sm" onClick={clearAll}>
-                      <Trash2 className="h-4 w-4 mr-2" />
-                      Clear all
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={fillEmptyWithZero}
-                    >
-                      <RotateCcw className="h-4 w-4 mr-2" />
-                      Fill empty with 0
-                    </Button>
+                    <div className="flex items-center gap-2">
+                      <Button variant="outline" size="sm" onClick={clearAll}>
+                        <Trash2 className="h-4 w-4 mr-2" />
+                        Clear all
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={fillEmptyWithZero}
+                      >
+                        <RotateCcw className="h-4 w-4 mr-2" />
+                        Fill empty with 0
+                      </Button>
+                    </div>
                   </div>
                 </div>
-              </div>
+              )}
 
               <div className="flex-1">
                 <div
-                  className="matrixScroller relative overflow-y-auto overflow-x-hidden"
+                  className="matrixScroller relative overflow-y-auto"
                   style={{
                     maxHeight: "calc(100vh - var(--appTopbarH, 76px) - 160px)",
+                    overflowX: "auto",
                   }}
                 >
                   <table className="w-full border-separate border-spacing-0">
+                    {/* Header grid */}
                     <thead>
                       <tr
                         className="price-grid sticky top-0 z-20 bg-white dark:bg-slate-900"
@@ -775,74 +783,80 @@ export function Pricelist() {
                           >
                             <div className="flex flex-col items-center gap-2">
                               <span>{pkg.name}</span>
-                              <div className="flex items-center gap-1">
-                                <DropdownMenu>
-                                  <DropdownMenuTrigger asChild>
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      className="h-6 px-2"
-                                    >
-                                      <Settings className="h-3 w-3" />
-                                    </Button>
-                                  </DropdownMenuTrigger>
-                                  <DropdownMenuContent align="center">
-                                    <DropdownMenuItem
-                                      onClick={() => {
-                                        const fromPackage =
-                                          selectedProduct?.packages?.find(
-                                            (p) => p.id !== pkg.id
-                                          );
-                                        if (fromPackage)
-                                          copyPackagePrices(
-                                            fromPackage.id,
-                                            pkg.id
-                                          );
-                                      }}
-                                    >
-                                      <Copy className="h-4 w-4 mr-2" />
-                                      Copy from...
-                                    </DropdownMenuItem>
-                                    <DropdownMenuSeparator />
-                                    <DropdownMenuItem
-                                      onClick={() =>
-                                        adjustPackagePrices(pkg.id, 10)
-                                      }
-                                    >
-                                      <TrendingUp className="h-4 w-4 mr-2" />
-                                      +10%
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem
-                                      onClick={() =>
-                                        adjustPackagePrices(pkg.id, -10)
-                                      }
-                                    >
-                                      <TrendingDown className="h-4 w-4 mr-2" />
-                                      -10%
-                                    </DropdownMenuItem>
-                                    <DropdownMenuSeparator />
-                                    <DropdownMenuItem
-                                      onClick={() =>
-                                        roundPackagePrices(pkg.id, 1000)
-                                      }
-                                    >
-                                      Round to 1.000
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem
-                                      onClick={() =>
-                                        roundPackagePrices(pkg.id, 5000)
-                                      }
-                                    >
-                                      Round to 5.000
-                                    </DropdownMenuItem>
-                                  </DropdownMenuContent>
-                                </DropdownMenu>
-                              </div>
+
+                              {/* Settings tools → hanya di Advanced */}
+                              {viewMode === "advanced" && (
+                                <div className="flex items-center gap-1">
+                                  <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-6 px-2"
+                                      >
+                                        <Settings className="h-3 w-3" />
+                                      </Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="center">
+                                      <DropdownMenuItem
+                                        onClick={() => {
+                                          const fromPackage =
+                                            selectedProduct?.packages?.find(
+                                              (p) => p.id !== pkg.id
+                                            );
+                                          if (fromPackage)
+                                            copyPackagePrices(
+                                              fromPackage.id,
+                                              pkg.id
+                                            );
+                                        }}
+                                      >
+                                        <Copy className="h-4 w-4 mr-2" />
+                                        Copy from...
+                                      </DropdownMenuItem>
+                                      <DropdownMenuSeparator />
+                                      <DropdownMenuItem
+                                        onClick={() =>
+                                          adjustPackagePrices(pkg.id, 10)
+                                        }
+                                      >
+                                        <TrendingUp className="h-4 w-4 mr-2" />
+                                        +10%
+                                      </DropdownMenuItem>
+                                      <DropdownMenuItem
+                                        onClick={() =>
+                                          adjustPackagePrices(pkg.id, -10)
+                                        }
+                                      >
+                                        <TrendingDown className="h-4 w-4 mr-2" />
+                                        -10%
+                                      </DropdownMenuItem>
+                                      <DropdownMenuSeparator />
+                                      <DropdownMenuItem
+                                        onClick={() =>
+                                          roundPackagePrices(pkg.id, 1000)
+                                        }
+                                      >
+                                        Round to 1.000
+                                      </DropdownMenuItem>
+                                      <DropdownMenuItem
+                                        onClick={() =>
+                                          roundPackagePrices(pkg.id, 5000)
+                                        }
+                                      >
+                                        Round to 5.000
+                                      </DropdownMenuItem>
+                                    </DropdownMenuContent>
+                                  </DropdownMenu>
+                                </div>
+                              )}
                             </div>
                           </th>
                         ))}
                       </tr>
                     </thead>
+
+                    {/* Body grid */}
                     <tbody>
                       {filteredDurations.map((duration) => (
                         <tr
@@ -865,28 +879,32 @@ export function Pricelist() {
                                   {duration.code}
                                 </div>
                               </div>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => {
-                                  const price = prompt(
-                                    "Fill all packages with price:"
-                                  );
-                                  if (price && !isNaN(Number(price))) {
-                                    fillRow(duration.id, Number(price));
-                                  }
-                                }}
-                                className="h-6 px-2"
-                              >
-                                Fill row
-                              </Button>
+
+                              {/* Fill row → hanya di Advanced */}
+                              {viewMode === "advanced" && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => {
+                                    const price = prompt(
+                                      "Fill all packages with price:"
+                                    );
+                                    if (price && !isNaN(Number(price))) {
+                                      fillRow(duration.id, Number(price));
+                                    }
+                                  }}
+                                  className="h-6 px-2"
+                                >
+                                  Fill row
+                                </Button>
+                              )}
                             </div>
                           </td>
+
                           {selectedProduct?.packages?.map((pkg) => {
                             const currentPrice = getPrice(duration.id, pkg.id);
                             const isEmpty = currentPrice === 0;
                             const isActive = pkg.status === "active";
-
                             return (
                               <td
                                 key={pkg.id}
@@ -915,11 +933,13 @@ export function Pricelist() {
                                     }`}
                                     disabled={!isActive}
                                   />
-                                  {currentPrice > 0 && (
-                                    <div className="text-xs text-muted-foreground mt-1">
-                                      {formatCurrency(currentPrice)}
-                                    </div>
-                                  )}
+                                  {/* Preview mata uang → tampilkan hanya di Advanced agar Simple lebih ringkas */}
+                                  {currentPrice > 0 &&
+                                    viewMode === "advanced" && (
+                                      <div className="text-xs text-muted-foreground mt-1">
+                                        {formatCurrency(currentPrice)}
+                                      </div>
+                                    )}
                                 </div>
                               </td>
                             );
@@ -935,7 +955,22 @@ export function Pricelist() {
         </section>
       </div>
 
-      {/* Preview Dialog */}
+      {/* Floating unsaved indicator */}
+      {hasUnsavedChanges && !previewOpen && (
+        <div className="fixed bottom-6 right-6 z-[70]">
+          <div className="rounded-full bg-background/90 backdrop-blur border border-border shadow-lg px-3 py-2 flex items-center gap-3">
+            <span className="inline-flex items-center gap-2 text-sm">
+              <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+              Unsaved changes
+            </span>
+            <Button size="sm" onClick={handleSave}>
+              Save
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Preview Dialog (responsif) */}
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
         <DialogContent className="max-w-6xl max-h-[90vh] overflow-auto">
           <DialogHeader>
@@ -943,7 +978,8 @@ export function Pricelist() {
           </DialogHeader>
 
           <div className="space-y-4">
-            <div className="flex items-center justify-between">
+            {/* Toolbar */}
+            <div className="flex items-center justify-between flex-wrap gap-3">
               <div className="flex items-center gap-4">
                 <div className="flex bg-muted rounded-lg p-1">
                   <button
@@ -991,24 +1027,26 @@ export function Pricelist() {
                   <span className="text-sm">Show legend</span>
                 </div>
 
-                <Select
-                  value={previewOptions.scale.toString()}
-                  onValueChange={(value) =>
-                    setPreviewOptions({
-                      ...previewOptions,
-                      scale: Number(value),
-                    })
-                  }
-                >
-                  <SelectTrigger className="w-24">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="90">90%</SelectItem>
-                    <SelectItem value="100">100%</SelectItem>
-                    <SelectItem value="110">110%</SelectItem>
-                  </SelectContent>
-                </Select>
+                <div className="hidden md:flex items-center gap-2">
+                  <Select
+                    value={previewOptions.scale.toString()}
+                    onValueChange={(value) =>
+                      setPreviewOptions({
+                        ...previewOptions,
+                        scale: Number(value),
+                      })
+                    }
+                  >
+                    <SelectTrigger className="w-24">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="90">90%</SelectItem>
+                      <SelectItem value="100">100%</SelectItem>
+                      <SelectItem value="110">110%</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
 
               <Button onClick={() => window.print()}>
@@ -1017,68 +1055,127 @@ export function Pricelist() {
               </Button>
             </div>
 
-            <div
-              className="border rounded-lg p-6"
-              style={{
-                transform: `scale(${previewOptions.scale / 100})`,
-                transformOrigin: "top left",
-              }}
-            >
-              <div className="text-center mb-6">
-                <h2 className="text-2xl font-bold">
-                  {selectedProduct?.name || "Unknown Product"} - Pricing
-                </h2>
-                <p className="text-muted-foreground">
-                  Currency: {currency} • Tax: {taxMode}
-                </p>
-              </div>
+            {/* Desktop / Tablet */}
+            <div className="hidden md:block">
+              <div
+                className="border rounded-lg p-6 overflow-x-auto preview-wrap"
+                style={{
+                  transform: `scale(${previewOptions.scale / 100})`,
+                  transformOrigin: "top left",
+                }}
+              >
+                <div className="text-center mb-6">
+                  <h2 className="text-2xl font-bold">
+                    {selectedProduct?.name || "Unknown Product"} - Pricing
+                  </h2>
+                  <p className="text-muted-foreground">
+                    Currency: {currency} • Tax: {taxMode}
+                  </p>
+                </div>
 
-              <table className="w-full border-collapse border border-border">
-                <thead>
-                  <tr className="bg-muted">
-                    <th className="border border-border p-3 text-left">
-                      Duration
-                    </th>
-                    {selectedProduct?.packages?.map((pkg) => (
-                      <th
-                        key={pkg.id}
-                        className="border border-border p-3 text-center"
-                      >
-                        {pkg.name}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {selectedProduct?.durations?.map((duration) => (
-                    <tr key={duration.id}>
-                      <td className="border border-border p-3 font-medium">
-                        {duration.name}
-                      </td>
+                <div className="min-w-[720px]">
+                  <table className="w-full border-collapse border border-border">
+                    <thead>
+                      <tr className="bg-muted">
+                        <th className="border border-border p-3 text-left">
+                          Duration
+                        </th>
+                        {selectedProduct?.packages?.map((pkg) => (
+                          <th
+                            key={pkg.id}
+                            className="border border-border p-3 text-center whitespace-nowrap"
+                          >
+                            {pkg.name}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedProduct?.durations?.map((duration) => (
+                        <tr key={duration.id}>
+                          <td className="border border-border p-3 font-medium">
+                            {duration.name}
+                          </td>
+                          {selectedProduct?.packages?.map((pkg) => {
+                            const price = getPrice(duration.id, pkg.id);
+                            return (
+                              <td
+                                key={pkg.id}
+                                className="border border-border p-3 text-center"
+                              >
+                                {price > 0 ? formatCurrency(price) : "-"}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {previewOptions.showLegend && (
+                  <div className="mt-6 text-sm text-muted-foreground">
+                    <p>
+                      Agile Store • {selectedProduct?.name || "Unknown Product"}{" "}
+                      • {currency} • {new Date().toLocaleString()}
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Mobile */}
+            <div className="md:hidden">
+              <div className="border rounded-lg p-4 space-y-4">
+                <div className="text-center">
+                  <h2 className="text-lg font-semibold">
+                    {selectedProduct?.name || "Unknown Product"} - Pricing
+                  </h2>
+                  <p className="text-xs text-muted-foreground">
+                    Currency: {currency} • Tax: {taxMode}
+                  </p>
+                </div>
+
+                {selectedProduct?.durations?.map((duration) => (
+                  <div
+                    key={duration.id}
+                    className="rounded-lg border border-border p-3 bg-background"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="font-medium">{duration.name}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {duration.code}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
                       {selectedProduct?.packages?.map((pkg) => {
                         const price = getPrice(duration.id, pkg.id);
                         return (
-                          <td
-                            key={pkg.id}
-                            className="border border-border p-3 text-center"
+                          <div
+                            key={`${duration.id}-${pkg.id}`}
+                            className="rounded-md border border-border px-3 py-2 flex items-center justify-between"
                           >
-                            {price > 0 ? formatCurrency(price) : "-"}
-                          </td>
+                            <span className="text-sm">{pkg.name}</span>
+                            <span className="font-medium">
+                              {price > 0 ? formatCurrency(price) : "-"}
+                            </span>
+                          </div>
                         );
                       })}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                    </div>
+                  </div>
+                ))}
 
-              {previewOptions.showLegend && (
-                <div className="mt-6 text-sm text-muted-foreground">
-                  <p>
+                {previewOptions.showLegend && (
+                  <div className="pt-2 text-[11px] text-muted-foreground">
                     Agile Store • {selectedProduct?.name || "Unknown Product"} •{" "}
                     {currency} • {new Date().toLocaleString()}
-                  </p>
-                </div>
-              )}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </DialogContent>
@@ -1090,10 +1187,8 @@ export function Pricelist() {
         }
 
         html,
-        body,
-        #priceLayout,
-        #priceContent {
-          overflow-x: hidden;
+        body {
+          overflow-x: auto;
         }
 
         #priceSidebar {
@@ -1106,13 +1201,11 @@ export function Pricelist() {
         }
 
         #priceContent {
-          padding-left: 320px;
-          width: 100vw;
+          margin-left: 300px;
+          padding: 0 24px 24px;
+          width: calc(100% - 300px);
           box-sizing: border-box;
-        }
-
-        .matrixScroller {
-          overflow-x: hidden;
+          overflow-x: auto;
         }
 
         thead th {
@@ -1130,13 +1223,6 @@ export function Pricelist() {
           background: inherit;
         }
 
-        .scrollbar-hide {
-          -ms-overflow-style: none;
-          scrollbar-width: none;
-        }
-        .scrollbar-hide::-webkit-scrollbar {
-          display: none;
-        }
         .line-clamp-2 {
           display: -webkit-box;
           -webkit-line-clamp: 2;
@@ -1155,9 +1241,6 @@ export function Pricelist() {
           }
         }
         @media (max-width: 768px) {
-          #priceLayout {
-            display: block;
-          }
           #priceSidebar {
             position: relative !important;
             height: auto !important;
@@ -1166,6 +1249,7 @@ export function Pricelist() {
             max-width: 100% !important;
           }
           #priceContent {
+            margin-left: 0 !important;
             padding-left: 0 !important;
             width: 100% !important;
           }
@@ -1179,6 +1263,17 @@ export function Pricelist() {
             padding: 8px;
           }
         }
+
+        .preview-wrap {
+          overflow-x: auto;
+        }
+        @media (min-width: 768px) {
+          .preview-wrap table th,
+          .preview-wrap table td {
+            white-space: nowrap;
+          }
+        }
+
         @media print {
           body * {
             visibility: hidden;
