@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState, useLayoutEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -44,7 +44,6 @@ import {
   panelUpdateParentFeaturePrice,
 } from "@/lib/api";
 
-// shadcn dialog + label
 import {
   Dialog,
   DialogContent,
@@ -65,7 +64,6 @@ interface Product {
   description: string;
   category: string;
 }
-
 interface MenuGroup {
   group: string;
   modules: MenuModule[];
@@ -108,6 +106,7 @@ interface ApiResponse {
 export function FeatureProductSplit() {
   const [products, setProducts] = useState<Product[]>([]);
   const [selectedProduct, setSelectedProduct] = useState<string>("");
+
   const [searchQuery, setSearchQuery] = useState("");
   const [filterType, setFilterType] = useState<"All" | "Features" | "Menus">(
     "All"
@@ -117,13 +116,22 @@ export function FeatureProductSplit() {
   const [activeTab, setActiveTab] = useState<"menus" | "features">("menus");
 
   const [apiData, setApiData] = useState<Record<string, ApiResponse>>({});
-  const [isLoading, setIsLoading] = useState(false);
+
+  // bedakan loading auto (boot) vs refresh manual (tombol)
+  const [loadingKind, setLoadingKind] = useState<null | "boot" | "refresh">(
+    null
+  );
+  const isRefreshing = loadingKind === "refresh";
+
+  // Flag untuk memastikan auto-read sudah selesai dicek (agar placeholder tidak muncul sebelum waktunya)
+  const [bootChecked, setBootChecked] = useState(false);
+
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [expandedModules, setExpandedModules] = useState<Set<string>>(
     new Set()
   );
 
-  // edit price modal state
+  // edit price modal
   const [editOpen, setEditOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<Feature | null>(null);
   const [editPrice, setEditPrice] = useState<string>("0");
@@ -171,16 +179,16 @@ export function FeatureProductSplit() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /* --------- Sinkron filter type ke tab (UI tetap sama) --------- */
+  /* --------- Sinkron filter type ke tab --------- */
   useEffect(() => {
     if (filterType === "Features") setActiveTab("features");
     if (filterType === "Menus") setActiveTab("menus");
   }, [filterType]);
 
-  /* --------- Load/Refresh mirror from Panel --------- */
-  const handleLoadAPI = async (refresh = false) => {
+  /* --------- FETCHER (tahu jenis loading) --------- */
+  const handleLoadAPI = async (refresh = false, indicate = true) => {
     if (!selectedProduct) return;
-    setIsLoading(true);
+    if (indicate) setLoadingKind(refresh ? "refresh" : "boot");
     try {
       const fjson = await panelListFeaturesByProduct(selectedProduct, refresh);
       const frows: any[] = Array.isArray(fjson?.data)
@@ -208,43 +216,35 @@ export function FeatureProductSplit() {
         features: { global, modules },
       };
       setApiData((prev) => ({ ...prev, [selectedProduct]: payload }));
-
-      const totalMenus = payload.menus.reduce(
-        (acc, g) =>
-          acc +
-          g.modules.reduce(
-            (macc, m) => macc + m.menus.length + (m.submenus?.length || 0),
-            0
-          ),
-        0
-      );
-      const totalFeatures =
-        payload.features.global.length +
-        Object.values(payload.features.modules).reduce(
-          (acc, arr) => acc + arr.length,
-          0
-        );
-
-      toast.success(
-        `Loaded ${totalMenus} menus and ${totalFeatures} features${
-          fjson?.meta?.mirrored != null
-            ? ` (mirrored: ${fjson.meta.mirrored}${
-                fjson?.meta?.subfeatures != null
-                  ? ` + ${fjson.meta.subfeatures} sub`
-                  : ""
-              })`
-            : ""
-        }`
-      );
     } catch (e: any) {
       console.error("[FeatureProductSplit] Load Error:", e?.message || e);
       toast.error(e?.message || "Failed to load data.");
     } finally {
-      setIsLoading(false);
+      if (indicate) setLoadingKind(null);
+      else setBootChecked(true); // ← auto-read selesai dicek (silent)
     }
   };
 
-  /* --------- UI helpers (unchanged) --------- */
+  /* --------- AUTO READ TANPA REFRESH (ANTI-FLICKER) ---------
+     Gunakan useLayoutEffect agar penetapan bootChecked/cache terjadi
+     sebelum browser melakukan paint, sehingga placeholder tidak sempat muncul. */
+  useLayoutEffect(() => {
+    if (!selectedProduct) return;
+    setBootChecked(false); // reset saat ganti produk (juga sebelum paint)
+    // Jika cache sudah ada → tandai selesai sebelum paint dan hindari fetch
+    if (apiData[selectedProduct]) {
+      setBootChecked(true);
+      return;
+    }
+
+    // Catatan: tidak menyalakan loader tombol Load karena indicate=false.
+    // (lihat argumen kedua)
+    // eslint-disable-next-line @typescript-eslint/no-floating-promises
+    handleLoadAPI(false, false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedProduct]);
+
+  /* --------- UI helpers --------- */
   const toggleGroup = (g: string) => {
     const s = new Set(expandedGroups);
     s.has(g) ? s.delete(g) : s.add(g);
@@ -279,7 +279,7 @@ export function FeatureProductSplit() {
     setSelectedProduct(code);
     setIsMobileMenuOpen(false);
   };
-  const handleReload = () => handleLoadAPI(true);
+  const handleReload = () => handleLoadAPI(true, true);
 
   /* --------- Debounce search --------- */
   const [debouncedQuery, setDebouncedQuery] = useState("");
@@ -288,12 +288,11 @@ export function FeatureProductSplit() {
     return () => clearTimeout(t);
   }, [searchQuery]);
 
-  /* --------- Filtered Views (data only) --------- */
+  /* --------- Filtered Views --------- */
   const filteredMenus = useMemo(() => {
     if (!currentData?.menus) return [];
     const q = debouncedQuery.toLowerCase();
     if (!q) return currentData.menus;
-
     const groups: MenuGroup[] = [];
     for (const g of currentData.menus) {
       const filteredModules: MenuModule[] = [];
@@ -331,7 +330,6 @@ export function FeatureProductSplit() {
       };
     const q = debouncedQuery.toLowerCase();
     if (!q) return currentData.features;
-
     const includeFeat = (f: Feature) =>
       [f.name, f.description, f.module_name, f.feature_code]
         .filter(Boolean)
@@ -362,13 +360,12 @@ export function FeatureProductSplit() {
   /* --------- Export CSV --------- */
   const handleExport = () => {
     if (!currentData) return;
-
     const rows: string[] = [];
     if (activeTab === "menus") {
       rows.push("Group,Module,Type,Name,ID/Ref");
       for (const g of filteredMenus) {
         for (const m of g.modules) {
-          for (const menu of m.menus) {
+          for (const menu of m.menus)
             rows.push(
               [
                 csv(g.group),
@@ -378,8 +375,7 @@ export function FeatureProductSplit() {
                 csv(menu.id),
               ].join(",")
             );
-          }
-          for (const sm of m.submenus || []) {
+          for (const sm of m.submenus || [])
             rows.push(
               [
                 csv(g.group),
@@ -389,7 +385,6 @@ export function FeatureProductSplit() {
                 csv(sm.id),
               ].join(",")
             );
-          }
         }
       }
     } else {
@@ -431,11 +426,9 @@ export function FeatureProductSplit() {
         }
       };
       for (const p of filteredFeatures.global) pushFeat("GLOBAL", p);
-      for (const [mod, arr] of Object.entries(filteredFeatures.modules)) {
+      for (const [mod, arr] of Object.entries(filteredFeatures.modules))
         for (const p of arr) pushFeat(mod, p);
-      }
     }
-
     const blob = new Blob([rows.join("\n")], {
       type: "text/csv;charset=utf-8",
     });
@@ -448,9 +441,9 @@ export function FeatureProductSplit() {
     URL.revokeObjectURL(url);
   };
 
-  /* --------- Edit Price handlers --------- */
+  /* --------- Edit Price --------- */
   const openEditPrice = (f: Feature) => {
-    if ((f.item_type || "FEATURE").toUpperCase() !== "FEATURE") return; // hanya parent
+    if ((f.item_type || "FEATURE").toUpperCase() !== "FEATURE") return;
     setEditTarget(f);
     setEditPrice(
       typeof f.price_addon === "number" && !isNaN(f.price_addon)
@@ -459,7 +452,6 @@ export function FeatureProductSplit() {
     );
     setEditOpen(true);
   };
-
   const submitEditPrice = async () => {
     if (!editTarget || !selectedProduct) return;
     const value = Number(editPrice);
@@ -477,8 +469,7 @@ export function FeatureProductSplit() {
       toast.success("Price updated.");
       setEditOpen(false);
       setEditTarget(null);
-      // refresh data agar tabel ikut update
-      await handleLoadAPI(false);
+      await handleLoadAPI(false, false); // refresh tabel tanpa muter tombol
     } catch (e: any) {
       toast.error(e?.message || "Failed to update price.");
     } finally {
@@ -492,7 +483,6 @@ export function FeatureProductSplit() {
       String(
         f.id ?? f.feature_code ?? f.code ?? Math.random().toString(36).slice(2)
       ) || "";
-
     const name =
       String(
         f.name ??
@@ -502,41 +492,32 @@ export function FeatureProductSplit() {
           f.feature_code ??
           `Feature ${id}`
       ) || "";
-
     const baseDesc = String(f.description ?? "") || "";
-
     const price =
       typeof f.price_addon !== "undefined" ? Number(f.price_addon) : undefined;
-
     const trialAvail =
       typeof f.trial_available !== "undefined"
         ? !!f.trial_available
         : undefined;
-
     const trialDays =
       typeof f.trial_days !== "undefined" ? Number(f.trial_days) : undefined;
-
     const extras: string[] = [];
     if (typeof price !== "undefined")
       extras.push(`Price Add-on: $${(price ?? 0).toFixed(2)}`);
-    if (typeof trialAvail !== "undefined") {
+    if (typeof trialAvail !== "undefined")
       extras.push(
         `Trial: ${trialAvail ? "Available" : "Not available"}${
           trialAvail && trialDays ? ` (${trialDays} days)` : ""
         }`
       );
-    }
     const description = [baseDesc, extras.join(" | ")]
       .filter(Boolean)
       .join(" — ");
-
-    const active =
+    const active = !(
       f.is_active === false ||
       f.status === "Inactive" ||
       f.status === "Disabled"
-        ? false
-        : true;
-
+    );
     return {
       id,
       name,
@@ -551,16 +532,11 @@ export function FeatureProductSplit() {
       price_addon: price,
       trial_available: trialAvail,
       trial_days: trialDays ?? null,
-    } as Feature;
+    };
   }
 
-  function splitFeaturesByModule(features: any[]): {
-    global: Feature[];
-    modules: Record<string, Feature[]>;
-  } {
+  function splitFeaturesByModule(features: any[]) {
     const mapped: Feature[] = (features || []).map(mapMirrorFeatureToUI);
-
-    // Index parent
     const parentIndex = new Map<string, Feature>();
     for (const f of mapped) {
       const t = String(f.item_type || "FEATURE").toUpperCase();
@@ -575,35 +551,23 @@ export function FeatureProductSplit() {
       );
       for (const k of keys) parentIndex.set(k, p);
     }
-
-    // Pasangkan anak ke induk
     for (const f of mapped) {
-      const t = String(f.item_type || "FEATURE").toUpperCase();
-      if (t !== "SUBFEATURE") continue;
-
+      if (String(f.item_type || "FEATURE").toUpperCase() !== "SUBFEATURE")
+        continue;
       const candidateKeys = [
         String(f.parent_code || ""),
         String(f.parent_id || ""),
       ].filter(Boolean);
-
       let parent: Feature | undefined;
       for (const k of candidateKeys) {
         parent = parentIndex.get(k);
         if (parent) break;
       }
-      if (parent) {
-        (parent.children ||= []).push({
-          ...f,
-          children: undefined,
-        });
-      }
+      if (parent) (parent.children ||= []).push({ ...f, children: undefined });
     }
-
-    // Group per module
     const global: Feature[] = [];
     const modules: Record<string, Feature[]> = {};
     const seen = new Set<Feature>();
-
     for (const p of parentIndex.values()) {
       if (seen.has(p)) continue;
       seen.add(p);
@@ -611,7 +575,6 @@ export function FeatureProductSplit() {
       if (!mod || mod === "Global") global.push(p);
       else (modules[mod] ||= []).push(p);
     }
-
     Object.keys(modules).forEach((k) => {
       modules[k].sort((a, b) => a.name.localeCompare(b.name));
       modules[k].forEach((p) =>
@@ -619,23 +582,18 @@ export function FeatureProductSplit() {
       );
     });
     global.sort((a, b) => a.name.localeCompare(b.name));
-
     return { global, modules };
   }
+
   function buildMenusFromMirror(rows: any[]): MenuGroup[] {
     if (!Array.isArray(rows) || rows.length === 0) return [];
-
-    // ---- Helper: normalisasi type ----
     const normType = (t: any): "GROUP" | "MODULE" | "MENU" | "SUBMENU" => {
       const s = String(t ?? "menu").toUpperCase();
       if (s === "GROUP") return "GROUP";
       if (s === "MODULE") return "MODULE";
       if (s === "SUBMENU") return "SUBMENU";
-      // fallback menu
       return "MENU";
     };
-
-    // ---- Step 1: pastikan kita punya "flat nodes" (id, parent_id, type, title, etc) ----
     type Node = {
       id: string | number;
       parent_id: string | number | null;
@@ -644,18 +602,12 @@ export function FeatureProductSplit() {
       product_code?: string;
       module_name?: string | null;
     };
-
     const flat: Node[] = [];
-
-    // a) Jika payload sudah flat → gunakan langsung.
     const looksFlat =
       rows.length > 0 &&
       !("children" in (rows[0] ?? {})) &&
       "id" in (rows[0] ?? {});
-
-    // b) Jika payload tree (ada "children") → DFS untuk meratakan.
     const looksTree = rows.length > 0 && "children" in (rows[0] ?? {});
-
     const pushFlat = (r: any) => {
       flat.push({
         id: r.id ?? r.code ?? crypto.randomUUID(),
@@ -671,42 +623,26 @@ export function FeatureProductSplit() {
         module_name: r.module_name ?? r.module ?? null,
       });
     };
-
-    if (looksFlat) {
-      for (const r of rows) pushFlat(r);
-    } else if (looksTree) {
-      // traversal untuk tree → jadikan flat sambil bawa parent
+    if (looksFlat) for (const r of rows) pushFlat(r);
+    else if (looksTree) {
       const dfs = (node: any, parentId: any = null) => {
-        const n = {
+        const n: Node = {
           id: node.id ?? node.code ?? crypto.randomUUID(),
           parent_id: parentId,
           type: normType(node.type ?? node.item_type),
           title: String(node.title ?? node.name ?? "Menu"),
           product_code: node.product_code,
           module_name: node.module_name ?? node.module ?? null,
-        } as Node;
+        };
         flat.push(n);
-        if (Array.isArray(node.children)) {
+        if (Array.isArray(node.children))
           for (const ch of node.children) dfs(ch, n.id);
-        }
       };
       for (const root of rows) dfs(root, null);
-    } else {
-      // payload tak dikenal → kosongkan saja (biar aman, UI akan tampil "No menus mirrored")
-      return [];
-    }
+    } else return [];
 
-    // Guard: Data ternyata fitur semua → kosongkan tab Menus
-    const onlyFeatures = flat.every((x) =>
-      x.type === "MENU" || x.type === "SUBMENU" ? false : false
-    );
-    // di versi sebelumnya guard ini salah kaprah (karena MENU/SUBMENU dianggap "FEATURE"),
-    // di sini kita tidak mematikannya—cukup lanjut proses.
-
-    // ---- Step 2: Index untuk menelusuri parent chain ----
     const byId = new Map<string | number, Node>();
     for (const n of flat) byId.set(n.id, n);
-
     const getAncestorByType = (
       start: Node,
       want: "GROUP" | "MODULE" | "MENU"
@@ -722,29 +658,17 @@ export function FeatureProductSplit() {
       return null;
     };
 
-    // ---- Step 3: susun ke struktur { group → modules[] → menus/submenus } ----
     type ModuleBucket = {
       name: string;
       menus: MenuItem[];
       submenus: SubMenuItem[];
     };
-    const groupBuckets = new Map<
-      string, // group name
-      Map<string, ModuleBucket> // module name -> bucket
-    >();
+    const groupBuckets = new Map<string, Map<string, ModuleBucket>>();
 
     for (const n of flat) {
-      if (n.type === "GROUP" || n.type === "MODULE") {
-        // node struktur, digunakan saat menurunkan anak-anak saja
-        continue;
-      }
-
-      // Tentukan group & module berdasar parent chain:
-      // - Group = ancestor bertype GROUP → .title, kalau tak ada: "General"
-      // - Module = ancestor bertype MODULE → .title, kalau tak ada: n.module_name || "General"
+      if (n.type === "GROUP" || n.type === "MODULE") continue;
       const groupNode = getAncestorByType(n, "GROUP");
       const moduleNode = getAncestorByType(n, "MODULE");
-
       const groupName =
         (groupNode?.title?.trim() || "") !== "" ? groupNode!.title : "General";
       const moduleName =
@@ -754,31 +678,26 @@ export function FeatureProductSplit() {
 
       if (!groupBuckets.has(groupName)) groupBuckets.set(groupName, new Map());
       const modulesMap = groupBuckets.get(groupName)!;
-
-      if (!modulesMap.has(moduleName)) {
+      if (!modulesMap.has(moduleName))
         modulesMap.set(moduleName, {
           name: moduleName,
           menus: [],
           submenus: [],
         });
-      }
       const bucket = modulesMap.get(moduleName)!;
 
-      if (n.type === "MENU") {
+      if (n.type === "MENU")
         bucket.menus.push({ id: String(n.id), name: n.title });
-      } else if (n.type === "SUBMENU") {
-        // Cari parent menu terdekat untuk label "menu" di SubMenuItem
+      else if (n.type === "SUBMENU") {
         const parentMenu = getAncestorByType(n, "MENU");
-        const menuLabel = parentMenu?.title ?? "Menu";
         bucket.submenus.push({
           id: String(n.id),
           name: n.title,
-          menu: menuLabel,
+          menu: parentMenu?.title ?? "Menu",
         });
       }
     }
 
-    // ---- Step 4: ubah ke bentuk MenuGroup[] untuk UI kamu ----
     const groups: MenuGroup[] = [];
     for (const [gName, modMap] of groupBuckets.entries()) {
       const modules: MenuModule[] = [];
@@ -789,17 +708,14 @@ export function FeatureProductSplit() {
           submenus: bucket.submenus.length ? bucket.submenus : undefined,
         });
       }
-      // sort estetika (opsional, tidak memengaruhi UI lain)
       modules.sort((a, b) => a.name.localeCompare(b.name));
       groups.push({ group: gName, modules });
     }
-    // sort group juga (opsional)
     groups.sort((a, b) => a.group.localeCompare(b.group));
-
     return groups;
   }
 
-  /* --------- UI (markup mayor tetap sama; hanya tambah tombol kecil & modal) --------- */
+  /* ===================== UI ===================== */
   return (
     <div className="flex h-[calc(100vh-4rem)] bg-background">
       {isMobileMenuOpen && (
@@ -849,7 +765,9 @@ export function FeatureProductSplit() {
                   ? "bg-gradient-to-r from-slate-800/80 to-slate-700/80 border border-slate-600/50 shadow-lg shadow-slate-900/20 ring-1 ring-slate-500/30"
                   : "bg-slate-800/60 hover:bg-slate-700/70 border border-transparent hover:border-slate-600/30"
               }`}
-              onClick={() => handleProductSelect(p.product_code)}
+              onClick={() => {
+                setSelectedProduct(p.product_code);
+              }}
             >
               <div
                 className={`${
@@ -927,7 +845,8 @@ export function FeatureProductSplit() {
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="pl-10"
-                  disabled={isLoading}
+                  // disable saat refresh manual saja
+                  disabled={isRefreshing}
                 />
               </div>
             </div>
@@ -947,7 +866,7 @@ export function FeatureProductSplit() {
                         ? "bg-purple-600 hover:bg-purple-700"
                         : ""
                     }
-                    disabled={isLoading}
+                    disabled={isRefreshing}
                   >
                     {filter}
                   </Button>
@@ -961,7 +880,7 @@ export function FeatureProductSplit() {
                 <Switch
                   checked={groupByModule}
                   onCheckedChange={setGroupByModule}
-                  disabled={isLoading}
+                  disabled={isRefreshing}
                   aria-label="Group features and menus by module"
                 />
               </div>
@@ -969,7 +888,7 @@ export function FeatureProductSplit() {
               <Button
                 variant="outline"
                 size="sm"
-                disabled={isLoading || !currentData}
+                disabled={isRefreshing || !currentData}
                 aria-label="Export current view to CSV"
                 onClick={handleExport}
               >
@@ -978,12 +897,12 @@ export function FeatureProductSplit() {
 
               <Button
                 size="sm"
-                onClick={() => handleLoadAPI(true)}
-                disabled={isLoading || !selectedProduct}
+                onClick={() => handleLoadAPI(true, true)}
+                disabled={isRefreshing || !selectedProduct}
                 className="bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 font-medium"
                 aria-label="Load data"
               >
-                {isLoading ? (
+                {isRefreshing ? (
                   <Loader2 className="h-4 w-4 mr-1 animate-spin" />
                 ) : (
                   <RefreshCw className="h-4 w-4 mr-1" />
@@ -1009,7 +928,8 @@ export function FeatureProductSplit() {
         </div>
 
         <div className="flex-1 overflow-auto p-6">
-          {!currentData && !isLoading ? (
+          {/* Placeholder tampil HANYA jika: auto-read sudah selesai dicek & data memang kosong */}
+          {bootChecked && !currentData ? (
             <Card className="glass-morphism">
               <CardContent className="p-12 text-center">
                 <div className="text-muted-foreground">
@@ -1020,7 +940,7 @@ export function FeatureProductSplit() {
                     this product.
                   </p>
                   <Button
-                    onClick={() => handleLoadAPI(true)}
+                    onClick={() => handleLoadAPI(true, true)}
                     className="bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700"
                   >
                     <RefreshCw className="h-4 w-4 mr-2" /> Load
@@ -1278,8 +1198,8 @@ export function FeatureProductSplit() {
                                         onClick={() => openEditPrice(feature)}
                                         aria-label="Edit parent price"
                                       >
-                                        <Pencil className="h-3 w-3 mr-1" />
-                                        Edit Price
+                                        <Pencil className="h-3 w-3 mr-1" /> Edit
+                                        Price
                                       </Button>
                                     )}
                                   </div>
@@ -1414,7 +1334,7 @@ export function FeatureProductSplit() {
                                             }
                                             aria-label="Edit parent price"
                                           >
-                                            <Pencil className="h-3 w-3 mr-1" />
+                                            <Pencil className="h-3 w-3 mr-1" />{" "}
                                             Edit Price
                                           </Button>
                                         )}
@@ -1543,11 +1463,10 @@ export function FeatureProductSplit() {
   );
 }
 
-/* ===== helpers (tidak mengubah UI) ===== */
+/* ===== helpers ===== */
 function csv(v: any) {
   const s = String(v ?? "");
-  if (s.includes(",") || s.includes('"') || s.includes("\n")) {
+  if (s.includes(",") || s.includes('"') || s.includes("\n"))
     return `"${s.replace(/"/g, '""')}"`;
-  }
   return s;
 }

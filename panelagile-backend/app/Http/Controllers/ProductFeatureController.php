@@ -23,46 +23,56 @@ class ProductFeatureController extends Controller
      */
 
     /** GET /api/catalog/products/{code}/features?refresh=1 */
-    public function listFeatures(Request $req, string $codeOrId)
-    {
-        $product = $this->resolveProduct($codeOrId);
-        if (!$product) {
-            return response()->json(['message' => 'Product not found'], 404);
-        }
+   // App\Http\Controllers\ProductFeatureController.php
 
-        if ($req->boolean('refresh')) {
-            $this->mirrorFromWarehouse($product->product_code);
-        }
-
-        $rows = ProductFeature::where('product_code', $product->product_code)
-            ->orderByRaw('COALESCE(order_number, 999999)')
-            ->orderBy('name')
-            ->get();
-
-        $data = $rows->map(function (ProductFeature $r) {
-            return [
-                'id'               => (string)$r->id,
-                'feature_code'     => (string)$r->feature_code,
-                'name'             => (string)$r->name,
-                'description'      => (string)($r->description ?? ''),
-                'module_name'      => (string)($r->module_name ?? 'General'),
-                'item_type'        => (string)$r->item_type,        // FEATURE / SUBFEATURE
-                'parent_id'        => null,
-                'parent_code'      => null,
-                'menu_parent_code' => (string)($r->menu_parent_code ?? ''),
-                'is_active'        => (bool)$r->is_active,
-                'order_number'     => (int)($r->order_number ?? 0),
-                'price_addon'      => (float)($r->price_addon ?? 0),   // TERLIHAT DI FE
-                'trial_available'  => (bool)($r->trial_available ?? false),
-                'trial_days'       => $r->trial_days !== null ? (int)$r->trial_days : null,
-                'created_at'       => optional($r->created_at)->toISOString(),
-                'updated_at'       => optional($r->updated_at)->toISOString(),
-                'product_code'     => (string)$r->product_code,
-            ];
-        })->all();
-
-        return response()->json(['data' => $data]);
+public function listFeatures(Request $req, string $codeOrId)
+{
+    $product = $this->resolveProduct($codeOrId);
+    if (!$product) {
+        return response()->json(['message' => 'Product not found'], 404);
     }
+
+    // 1) Refresh manual dari FE (tombol/param)
+    if ($req->boolean('refresh')) {
+        $this->mirrorFromWarehouse($product->product_code);
+    }
+
+    // 2) Kalau lokal kosong → auto sync sekali
+    $exists = \App\Models\ProductFeature::where('product_code', $product->product_code)->exists();
+    if (!$exists) {
+        $this->mirrorFromWarehouse($product->product_code);
+    }
+
+    // 3) Selalu baca dari DB lokal
+    $rows = \App\Models\ProductFeature::where('product_code', $product->product_code)
+        ->orderByRaw('COALESCE(order_number, 999999)')
+        ->orderBy('name')
+        ->get();
+
+    $data = $rows->map(function (\App\Models\ProductFeature $r) {
+        return [
+            'id'               => (string)$r->id,
+            'feature_code'     => (string)$r->feature_code,
+            'name'             => (string)$r->name,
+            'description'      => (string)($r->description ?? ''),
+            'module_name'      => (string)($r->module_name ?? 'General'),
+            'item_type'        => (string)$r->item_type,   // FEATURE / SUBFEATURE
+            'parent_id'        => null,
+            'parent_code'      => null,
+            'menu_parent_code' => (string)($r->menu_parent_code ?? ''),
+            'is_active'        => (bool)$r->is_active,
+            'order_number'     => (int)($r->order_number ?? 0),
+            'price_addon'      => (float)($r->price_addon ?? 0),
+            'trial_available'  => (bool)($r->trial_available ?? false),
+            'trial_days'       => $r->trial_days !== null ? (int)$r->trial_days : null,
+            'created_at'       => optional($r->created_at)->toISOString(),
+            'updated_at'       => optional($r->updated_at)->toISOString(),
+            'product_code'     => (string)$r->product_code,
+        ];
+    })->all();
+
+    return response()->json(['data' => $data]);
+}
 
    
 
@@ -91,7 +101,7 @@ class ProductFeatureController extends Controller
 
     $data = $req->validate(['price_addon' => ['required','numeric','min:0']]);
 
-    $row = \App\Models\ProductFeature::where('product_code', $product->product_code)
+    $row = ProductFeature::where('product_code', $product->product_code)
         ->where(fn($q)=>$q->where('id',$feature)->orWhere('feature_code',$feature))
         ->first();
 
@@ -150,7 +160,7 @@ class ProductFeatureController extends Controller
     $key  = (string) config('services.warehouse.key');
     $headers = ['X-CLIENT-KEY'=>$key,'Accept'=>'application/json'];
 
-    $fres = \Illuminate\Support\Facades\Http::withHeaders($headers)
+    $fres = Http::withHeaders($headers)
         ->get($base."/catalog/products/{$productCode}/features");
     if ($fres->failed()) {
         $msg = $fres->json('message') ?? ($fres->status().' '.$fres->reason());
@@ -177,7 +187,7 @@ class ProductFeatureController extends Controller
         $nameRaw  = trim((string)($f['name'] ?? $f['feature_name'] ?? $f['title'] ?? $f['slug'] ?? ''));
         $codeRaw  = trim((string)($f['feature_code'] ?? $f['code'] ?? ''));
         if ($codeRaw === '') {
-            $codeRaw = $nameRaw !== '' ? \Illuminate\Support\Str::slug($nameRaw, '.') : ('feat.'.\Illuminate\Support\Str::uuid()->toString());
+            $codeRaw = $nameRaw !== '' ? Str::slug($nameRaw, '.') : ('feat.'.Str::uuid()->toString());
         }
         $name = $nameRaw !== '' ? $nameRaw : $codeRaw;
 
@@ -188,7 +198,7 @@ class ProductFeatureController extends Controller
         }
 
         // ==== Kunci unik: product_code + feature_code + item_type ====
-        $pf = \App\Models\ProductFeature::firstOrNew([
+        $pf = ProductFeature::firstOrNew([
             'product_code' => $productCode,
             'feature_code' => $codeRaw,
             'item_type'    => $itemType,

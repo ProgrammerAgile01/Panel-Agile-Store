@@ -58,6 +58,7 @@ export default function AdminDashboard() {
 
       // Jika API mengirim default_homepage level aktif, gunakan itu
       const defaultPage = data?.current_level?.default_homepage || "dashboard";
+
       setActivePage(defaultPage);
       setIsAuthenticated(true);
     } catch (e: any) {
@@ -95,9 +96,10 @@ export default function AdminDashboard() {
       case "dashboard":
         return <DashboardOverview />;
       case "products":
-      case "packages":
-      case "categories":
-      case "coupons":
+      case "products/all":
+        // case "packages":
+        // case "categories":
+        // case "coupons":
         return <ProductManagement />;
       case "customers":
         return <CustomerManagement />;

@@ -644,7 +644,7 @@ export function MatrixPackageSplit() {
 
   // Sidebar Produk
   const ProductList = () => (
-    <div className="h-full flex flex-col bg-gradient-to-b from-slate-900 to-slate-800 dark:from-slate-950 dark:to-slate-900 backdrop-blur-xl border-r border-slate-700/50">
+    <div className="h-screen flex flex-col bg-gradient-to-b from-slate-900 to-slate-800 dark:from-slate-950 dark:to-slate-900 backdrop-blur-xl border-r border-slate-700/50">
       <div className="p-4 border-b border-slate-700/50">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -666,7 +666,7 @@ export function MatrixPackageSplit() {
               key={product.id}
               onClick={() => {
                 setSelectedProduct(product);
-                setMobileDrawerOpen(false);
+                setMobileDrawerOpen(true);
               }}
               className={`w-full h-[72px] flex items-center gap-3 p-3 rounded-xl transition-all duration-300 group ${
                 isSelected
