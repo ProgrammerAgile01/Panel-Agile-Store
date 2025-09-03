@@ -44,6 +44,7 @@ class ProductSyncController extends Controller
                     'category'           => $row['category'] ?? null,
                     'status'             => $row['status'] ?? 'Active',
                     'description'        => $row['description'] ?? null,
+                    'db_name'        => $row['db_name'] ?? null,
                     'total_features'     => $row['total_features'] ?? 0,
                     'upstream_updated_at'=> $row['updated_at'] ?? null,
                 ]

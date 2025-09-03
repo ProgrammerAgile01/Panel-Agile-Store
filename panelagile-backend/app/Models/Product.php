@@ -17,7 +17,7 @@ class Product extends Model
         'category',
         'status',
         'description',
-        'db_name',              // <— NEW
+        'db_name',
         'total_features',
         'upstream_updated_at',
     ];
