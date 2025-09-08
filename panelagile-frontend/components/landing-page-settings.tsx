@@ -38,7 +38,7 @@ import {
   X,
 } from "lucide-react";
 
-import { API_URL } from "@/lib/api";
+import { API_URL, fetchMatrixByProduct } from "@/lib/api";
 import { getToken } from "@/lib/auth";
 
 /* ================== Types ================== */
@@ -547,6 +547,66 @@ const DEFAULT_SECTIONS: LandingPageSectionUI[] = [
       badges: ["SSL Secured", "Privacy Protected"],
     },
   },
+  {
+    id: "faq",
+    name: "FAQ Section",
+    enabled: true,
+    order: 9,
+    content: {
+      title: "Frequently Asked Questions",
+      subtitle:
+        "Get answers to common questions about our rental management software. Can't find what you're looking for? Contact our support team.",
+      faqs: [
+        {
+          question: "How long does the free trial last for rental management?",
+          answer:
+            "Our free trial lasts for 30 days with full access to all features. No credit card required to start.",
+        },
+        {
+          question: "Can I customize the booking forms and customer portal?",
+          answer:
+            "Yes, you can fully customize booking forms, customer portals, and branding to match your business needs.",
+        },
+        {
+          question: "What payment methods are supported?",
+          answer:
+            "We support all major credit cards, PayPal, bank transfers, and various local payment methods depending on your region.",
+        },
+        {
+          question: "Is there a mobile app for managing rentals on the go?",
+          answer:
+            "Yes, we have native mobile apps for both iOS and Android that allow you to manage your rentals anywhere.",
+        },
+        {
+          question: "What about a free plan?",
+          answer:
+            "We offer a free trial, but our paid plans start at $29/month to ensure we can provide the best service and support.",
+        },
+        {
+          question: "Can I integrate this with my existing tools?",
+          answer:
+            "Yes, we offer integrations with popular tools like QuickBooks, Stripe, Mailchimp, and many others via our API.",
+        },
+        {
+          question: "What kind of support do you provide?",
+          answer:
+            "We provide 24/7 email support, live chat during business hours, and phone support for Enterprise customers.",
+        },
+        {
+          question: "Can I try it before purchasing?",
+          answer:
+            "Start with our 30-day free trial to explore all features before making any commitment.",
+        },
+      ],
+      contactSection: {
+        title: "Still have questions?",
+        subtitle:
+          "Our support team is here to help you get started and find the right plan for you.",
+        ctaText: "Get Demo",
+        contactText: "Contact Support",
+      },
+    },
+  },
 ];
 
 /* ================== Component ================== */
@@ -652,6 +712,25 @@ export function LandingPageSettings() {
     [setSections, priceOf]
   );
   // === Features cache & helpers ===
+  // Matrix cache (per product)
+  const [matrixReady, setMatrixReady] = useState(false);
+
+  // Map id→nama fitur (dari matrix.features)
+  const featureNameByIdRef = useRef<Record<string, string>>({});
+
+  // Map package_id → Set(feature_id) yang enabled
+  const enabledFeatureIdsByPkgRef = useRef<Record<string, Set<string>>>({});
+  function getFeatureNamesForPackage(pkgId: string | number): string[] {
+    const ids = enabledFeatureIdsByPkgRef.current[String(pkgId)];
+    if (!ids || !ids.size) return [];
+    const names: string[] = [];
+    ids.forEach((fid) => {
+      const n = featureNameByIdRef.current[fid];
+      if (n) names.push(n);
+    });
+    return names;
+  }
+
   const featuresRef = useRef<string[]>([]);
 
   // ubah apa pun → string[]
@@ -704,6 +783,8 @@ export function LandingPageSettings() {
       }))
       .filter((o) => o.title);
   }
+  // dekat pricelistRef, durationsRef, featuresRef
+  const matrixFeaturesRef = useRef<Record<string, string[]>>({});
 
   /* ---------- Load products ---------- */
   useEffect(() => {
@@ -732,24 +813,25 @@ export function LandingPageSettings() {
 
     (async () => {
       try {
-        const [landing, featsRes, pkgs, durs, pr] = await Promise.allSettled([
-          getLandingByProduct(selectedProduct),
-          panelListFeaturesByProduct(selectedProduct),
-          listPackagesByProduct(selectedProduct),
-          listDurationsActive(),
-          getPricelistByProduct(selectedProduct),
-        ]);
+        // ── fetch paralel (tambah MX / matrix)
+        const [landing, featsRes, pkgs, durs, pr, mx] =
+          await Promise.allSettled([
+            getLandingByProduct(selectedProduct),
+            panelListFeaturesByProduct(selectedProduct),
+            listPackagesByProduct(selectedProduct),
+            listDurationsActive(),
+            getPricelistByProduct(selectedProduct),
+            fetchMatrixByProduct(selectedProduct), // ← NEW
+          ]);
 
-        // ---------- Simpan packages & durations ----------
-        if (pkgs.status === "fulfilled" && mounted) {
-          setPackages(pkgs.value);
-        }
+        // ── packages & durations
+        if (pkgs.status === "fulfilled" && mounted) setPackages(pkgs.value);
         if (durs.status === "fulfilled" && mounted) {
           setDurations(durs.value);
-          durationsRef.current = durs.value; // cache untuk handler
+          durationsRef.current = durs.value; // cache utk handler
         }
 
-        // ---------- Simpan pricelist ke ref ----------
+        // ── pricelist → ref
         if (pr.status === "fulfilled") {
           pricelistRef.current = {
             currency: pr.value.currency,
@@ -764,7 +846,51 @@ export function LandingPageSettings() {
           };
         }
 
-        // ---------- Landing → UI sections ----------
+        // ── MATRIX → peta fitur per paket (non-blocking)
+        let featureNamesByPkg: Record<string, string[]> = {};
+        // ── MATRIX → peta fitur per paket (non-blocking)
+        try {
+          if (mx.status === "fulfilled") {
+            const data = mx.value?.data || {};
+            const featuresArr: any[] = Array.isArray(data.features)
+              ? data.features
+              : [];
+            const matrixArr: any[] = Array.isArray(data.matrix)
+              ? data.matrix
+              : [];
+
+            const nameById: Record<string, string> = {};
+            for (const f of featuresArr) {
+              const id = String(f.id ?? f.code ?? "");
+              if (id)
+                nameById[id] = String(f.name ?? f.title ?? f.code ?? "").trim();
+            }
+
+            const pkgToSet: Record<string, Set<string>> = {};
+            for (const m of matrixArr) {
+              if (String(m.item_type).toLowerCase() !== "feature") continue;
+              if (!m.enabled) continue;
+              const pkgId = String(m.package_id ?? "");
+              const fid = String(m.item_id ?? "");
+              if (!pkgId || !fid) continue;
+              (pkgToSet[pkgId] ??= new Set<string>()).add(fid);
+            }
+
+            matrixFeaturesRef.current = Object.fromEntries(
+              Object.entries(pkgToSet).map(([pkgId, set]) => [
+                pkgId,
+                Array.from(set)
+                  .map((fid) => nameById[fid])
+                  .filter(Boolean),
+              ])
+            );
+          }
+        } catch (err) {
+          console.warn("matrix parse failed:", err);
+          matrixFeaturesRef.current = {};
+        }
+
+        // ── landing → sections UI
         if (landing.status === "fulfilled" && mounted) {
           const apiSections = Array.isArray(landing.value.sections)
             ? landing.value.sections
@@ -783,8 +909,6 @@ export function LandingPageSettings() {
               .sort((a: any, b: any) => a.order - b.order);
 
             setSections(mapped);
-
-            // pastikan activeSection valid
             const exists = mapped.some((m) => m.id === activeSection);
             if (!exists && mapped.length) setActiveSection(mapped[0].id);
           } else {
@@ -796,110 +920,95 @@ export function LandingPageSettings() {
           setActiveSection("hero");
         }
 
-        // ---------- Bind features dari product features ----------
+        // ── bind features (untuk SECTION "features" saja)
         if (featsRes.status === "fulfilled" && featureBind && mounted) {
           const rows: any[] = Array.isArray(featsRes.value?.data)
             ? featsRes.value.data
             : [];
+          const featureObjs = buildFeatureObjectsFromAPI(rows); // {title,description,...}
+          const featureNames = toStringFeatures(featureObjs); // string[]
 
-          const featureObjs = buildFeatureObjectsFromAPI(rows); // <- untuk section features
-          const featureNames = toStringFeatures(featureObjs); // <- untuk plans (string[])
-
-          // cache untuk Add Plan/handler lain
+          // cache fallback
           featuresRef.current = featureNames;
 
           setSections((prev) =>
-            prev.map((s) => {
-              if (s.id === "features") {
-                // SECTION FEATURES butuh objek {title, description, ...}
-                return {
-                  ...s,
-                  content: { ...s.content, features: featureObjs },
-                };
-              }
-              if (s.id === "pricing") {
-                // PLANS butuh string[] (tiap baris 1 fitur)
-                const plans = Array.isArray(s.content.plans)
-                  ? s.content.plans.map((p: any) => {
-                      const current = toStringFeatures(p.features);
-                      const isPlaceholder =
-                        current.length === 0 ||
-                        (current.length === 3 &&
-                          current[0] === "Feature 1" &&
-                          current[1] === "Feature 2" &&
-                          current[2] === "Feature 3");
-                      return {
-                        ...p,
-                        features: isPlaceholder ? featureNames : current,
-                      };
-                    })
-                  : [];
-                return { ...s, content: { ...s.content, plans } };
-              }
-              return s;
-            })
+            prev.map((s) =>
+              s.id === "features"
+                ? { ...s, content: { ...s.content, features: featureObjs } }
+                : s
+            )
           );
         }
 
-        // ---------- Map packages + pricelist → pricing plans (pakai durasi LOKAL) ----------
-        if (pkgs.status === "fulfilled" && mounted) {
+        // ── packages + pricelist → pricing plans (pakai duration lokal + matrix)
+        if (
+          pkgs.status === "fulfilled" &&
+          Array.isArray(pkgs.value) &&
+          pkgs.value.length &&
+          mounted
+        ) {
           const pkgList = pkgs.value;
           const dursArr =
             durs.status === "fulfilled" ? durs.value : durationsRef.current;
 
-          const monthly = dursArr.find((d) => d.months === 1) || dursArr[0];
-          const yearly =
-            dursArr.find((d) => d.months === 12) ||
-            dursArr.find((d) => d.months >= 12) ||
-            dursArr[dursArr.length - 1];
+          // belum ada durations? jangan timpa isi lama
+          if (Array.isArray(dursArr) && dursArr.length) {
+            const monthly = dursArr.find((d) => d.months === 1) || dursArr[0];
+            const yearly =
+              dursArr.find((d) => d.months === 12) ||
+              dursArr.find((d) => d.months >= 12) ||
+              dursArr[dursArr.length - 1];
 
-          const currency = pricelistRef.current.currency;
-          const tax_mode = pricelistRef.current.tax_mode;
-          console.log("==== FETCH RESULT ====");
-          console.log(
-            "packages:",
-            pkgs.status === "fulfilled" ? pkgs.value : "ERR"
-          );
-          console.log(
-            "durations:",
-            durs.status === "fulfilled" ? durs.value : "ERR"
-          );
-          console.log(
-            "pricelist:",
-            pr.status === "fulfilled" ? pr.value : "ERR"
-          );
-          setSections((prev) =>
-            prev.map((s) => {
-              if (s.id !== "pricing") return s;
+            const currency = pricelistRef.current.currency;
+            const tax_mode = pricelistRef.current.tax_mode;
 
-              const plans = pkgList.map((p) => ({
-                name: p.name,
-                description: p.description || "",
-                price: {
-                  monthly: monthly ? priceOf(p.id, monthly.id) ?? 0 : 0,
-                  yearly: yearly ? priceOf(p.id, yearly.id) ?? 0 : 0,
-                },
-                features:
-                  featuresRef.current.length > 0
-                    ? featuresRef.current
-                    : toStringFeatures(s.content.features), //
-                cta: "Start Free Trial",
-                popular: false,
-                package_id: p.id,
-                package_code: p.package_code,
-              }));
+            console.log("==== FETCH RESULT ====");
+            console.log("packages:", pkgs.value);
+            console.log("durations:", dursArr);
+            console.log(
+              "pricelist:",
+              pr.status === "fulfilled" ? pr.value : "ERR"
+            );
+            console.log("matrix map (pkg -> features):", featureNamesByPkg);
 
-              return {
-                ...s,
-                content: {
-                  ...s.content,
-                  currency,
-                  tax_mode,
-                  plans,
-                },
-              };
-            })
-          );
+            setSections((prev) =>
+              prev.map((s) => {
+                if (s.id !== "pricing") return s;
+                if (!monthly || !yearly) return s;
+
+                const plans = pkgList.map((p) => {
+                  const fromMatrix = featureNamesByPkg[String(p.id)];
+                  const fallback =
+                    featuresRef.current.length > 0
+                      ? featuresRef.current
+                      : toStringFeatures(s.content.features);
+
+                  return {
+                    name: p.name,
+                    description: p.description || "",
+                    price: {
+                      monthly: priceOf(p.id, monthly.id) ?? 0,
+                      yearly: priceOf(p.id, yearly.id) ?? 0,
+                    },
+                    // pakai fitur dari matrix bila ada; jika tidak, fallback
+                    features:
+                      Array.isArray(fromMatrix) && fromMatrix.length
+                        ? fromMatrix
+                        : fallback,
+                    cta: "Start Free Trial",
+                    popular: false,
+                    package_id: p.id,
+                    package_code: p.package_code,
+                  };
+                });
+
+                return {
+                  ...s,
+                  content: { ...s.content, currency, tax_mode, plans },
+                };
+              })
+            );
+          }
         }
       } catch (e) {
         console.error(e);
@@ -1886,7 +1995,7 @@ export function LandingPageSettings() {
                             Add Plan
                           </Button>
                         </div>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                           {sections
                             .find((s) => s.id === "pricing")
                             ?.content.plans?.map((plan: any, index: number) => (
@@ -1904,7 +2013,14 @@ export function LandingPageSettings() {
                                         const pkg = packages.find(
                                           (p) => String(p.id) === String(pkgId)
                                         );
-                                        const defaultFeatures =
+
+                                        // Ambil fitur dari MATRIX untuk paket baru
+                                        const fromMatrix =
+                                          matrixFeaturesRef.current[
+                                            String(pkgId)
+                                          ];
+                                        // Fallback ke daftar fitur global bila matrix kosong
+                                        const fallback =
                                           featuresRef.current.length > 0
                                             ? featuresRef.current
                                             : toStringFeatures(
@@ -1912,6 +2028,12 @@ export function LandingPageSettings() {
                                                   (s) => s.id === "features"
                                                 )?.content?.features
                                               );
+
+                                        const newFeatures =
+                                          Array.isArray(fromMatrix) &&
+                                          fromMatrix.length
+                                            ? fromMatrix
+                                            : fallback;
 
                                         setSections((prev) =>
                                           prev.map((s) => {
@@ -1922,15 +2044,6 @@ export function LandingPageSettings() {
                                               ? [...s.content.plans]
                                               : [];
                                             const cur = arr[index] ?? {};
-                                            const current = toStringFeatures(
-                                              cur.features
-                                            );
-                                            const isPlaceholder =
-                                              current.length === 0 ||
-                                              (current.length === 3 &&
-                                                current[0] === "Feature 1" &&
-                                                current[1] === "Feature 2" &&
-                                                current[2] === "Feature 3");
 
                                             arr[index] = {
                                               ...cur,
@@ -1940,9 +2053,8 @@ export function LandingPageSettings() {
                                               description:
                                                 pkg?.description ??
                                                 cur?.description,
-                                              features: isPlaceholder
-                                                ? defaultFeatures
-                                                : current,
+                                              // >>> kunci perbaikan: SET fitur dari matrix ketika paket berubah
+                                              features: newFeatures,
                                             };
 
                                             return {
@@ -1955,7 +2067,7 @@ export function LandingPageSettings() {
                                           })
                                         );
 
-                                        // harga otomatis dari pricelist
+                                        // sinkron harga dari pricelist (sudah ada di kode kamu)
                                         syncPlanPriceFromPricelist(
                                           index,
                                           String(pkgId)
@@ -3356,6 +3468,260 @@ export function LandingPageSettings() {
                       </div>
                     </div>
                   )}
+                  {/* FAQ Section Editor */}
+                  {activeSection === "faq" && (
+                    <div className="space-y-6">
+                      <div className="grid grid-cols-1 gap-4">
+                        <div>
+                          <Label htmlFor="faq-title">Section Title</Label>
+                          <Input
+                            id="faq-title"
+                            value={
+                              sections.find((s) => s.id === "faq")?.content
+                                .title || ""
+                            }
+                            onChange={(e) =>
+                              handleSectionUpdate("faq", {
+                                title: e.target.value,
+                              })
+                            }
+                            placeholder="Frequently Asked Questions"
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="faq-subtitle">Subtitle</Label>
+                          <Textarea
+                            id="faq-subtitle"
+                            value={
+                              sections.find((s) => s.id === "faq")?.content
+                                .subtitle || ""
+                            }
+                            onChange={(e) =>
+                              handleSectionUpdate("faq", {
+                                subtitle: e.target.value,
+                              })
+                            }
+                            placeholder="Get answers to common questions..."
+                            rows={2}
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="flex items-center justify-between mb-4">
+                          <Label>FAQ Items</Label>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="gap-2 bg-transparent"
+                            onClick={() => {
+                              const currentFaqs =
+                                sections.find((s) => s.id === "faq")?.content
+                                  .faqs || [];
+                              handleSectionUpdate("faq", {
+                                faqs: [
+                                  ...currentFaqs,
+                                  { question: "", answer: "" },
+                                ],
+                              });
+                            }}
+                          >
+                            <Plus className="h-4 w-4" />
+                            Add FAQ
+                          </Button>
+                        </div>
+                        <div className="space-y-4">
+                          {sections
+                            .find((s) => s.id === "faq")
+                            ?.content.faqs?.map((faq: any, index: number) => (
+                              <Card key={index}>
+                                <CardContent className="p-4">
+                                  <div className="flex items-start justify-between mb-3">
+                                    <Label className="text-sm font-medium">
+                                      FAQ {index + 1}
+                                    </Label>
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="h-8 w-8 p-0 text-red-500 hover:text-red-700"
+                                      onClick={() => {
+                                        const currentFaqs =
+                                          sections.find((s) => s.id === "faq")
+                                            ?.content.faqs || [];
+                                        const updatedFaqs = currentFaqs.filter(
+                                          (_: any, i: number) => i !== index
+                                        );
+                                        handleSectionUpdate("faq", {
+                                          faqs: updatedFaqs,
+                                        });
+                                      }}
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                  </div>
+                                  <div className="space-y-3">
+                                    <div>
+                                      <Label className="text-xs text-gray-600">
+                                        Question
+                                      </Label>
+                                      <Input
+                                        value={faq.question}
+                                        onChange={(e) => {
+                                          const currentFaqs =
+                                            sections.find((s) => s.id === "faq")
+                                              ?.content.faqs || [];
+                                          const updatedFaqs = currentFaqs.map(
+                                            (f: any, i: number) =>
+                                              i === index
+                                                ? {
+                                                    ...f,
+                                                    question: e.target.value,
+                                                  }
+                                                : f
+                                          );
+                                          handleSectionUpdate("faq", {
+                                            faqs: updatedFaqs,
+                                          });
+                                        }}
+                                        placeholder="Enter FAQ question"
+                                      />
+                                    </div>
+                                    <div>
+                                      <Label className="text-xs text-gray-600">
+                                        Answer
+                                      </Label>
+                                      <Textarea
+                                        value={faq.answer}
+                                        onChange={(e) => {
+                                          const currentFaqs =
+                                            sections.find((s) => s.id === "faq")
+                                              ?.content.faqs || [];
+                                          const updatedFaqs = currentFaqs.map(
+                                            (f: any, i: number) =>
+                                              i === index
+                                                ? {
+                                                    ...f,
+                                                    answer: e.target.value,
+                                                  }
+                                                : f
+                                          );
+                                          handleSectionUpdate("faq", {
+                                            faqs: updatedFaqs,
+                                          });
+                                        }}
+                                        placeholder="Enter FAQ answer"
+                                        rows={3}
+                                      />
+                                    </div>
+                                  </div>
+                                </CardContent>
+                              </Card>
+                            ))}
+                        </div>
+                      </div>
+
+                      <div>
+                        <Label className="mb-4 block">Contact Section</Label>
+                        <div className="grid grid-cols-1 gap-4">
+                          <div>
+                            <Label htmlFor="contact-title">Contact Title</Label>
+                            <Input
+                              id="contact-title"
+                              value={
+                                sections.find((s) => s.id === "faq")?.content
+                                  .contactSection?.title || ""
+                              }
+                              onChange={(e) => {
+                                const currentContact =
+                                  sections.find((s) => s.id === "faq")?.content
+                                    .contactSection || {};
+                                handleSectionUpdate("faq", {
+                                  contactSection: {
+                                    ...currentContact,
+                                    title: e.target.value,
+                                  },
+                                });
+                              }}
+                              placeholder="Still have questions?"
+                            />
+                          </div>
+                          <div>
+                            <Label htmlFor="contact-subtitle">
+                              Contact Subtitle
+                            </Label>
+                            <Textarea
+                              id="contact-subtitle"
+                              value={
+                                sections.find((s) => s.id === "faq")?.content
+                                  .contactSection?.subtitle || ""
+                              }
+                              onChange={(e) => {
+                                const currentContact =
+                                  sections.find((s) => s.id === "faq")?.content
+                                    .contactSection || {};
+                                handleSectionUpdate("faq", {
+                                  contactSection: {
+                                    ...currentContact,
+                                    subtitle: e.target.value,
+                                  },
+                                });
+                              }}
+                              placeholder="Our support team is here to help..."
+                              rows={2}
+                            />
+                          </div>
+                          <div className="grid grid-cols-2 gap-4">
+                            <div>
+                              <Label htmlFor="cta-text">CTA Button Text</Label>
+                              <Input
+                                id="cta-text"
+                                value={
+                                  sections.find((s) => s.id === "faq")?.content
+                                    .contactSection?.ctaText || ""
+                                }
+                                onChange={(e) => {
+                                  const currentContact =
+                                    sections.find((s) => s.id === "faq")
+                                      ?.content.contactSection || {};
+                                  handleSectionUpdate("faq", {
+                                    contactSection: {
+                                      ...currentContact,
+                                      ctaText: e.target.value,
+                                    },
+                                  });
+                                }}
+                                placeholder="Get Demo"
+                              />
+                            </div>
+                            <div>
+                              <Label htmlFor="contact-text">
+                                Contact Button Text
+                              </Label>
+                              <Input
+                                id="contact-text"
+                                value={
+                                  sections.find((s) => s.id === "faq")?.content
+                                    .contactSection?.contactText || ""
+                                }
+                                onChange={(e) => {
+                                  const currentContact =
+                                    sections.find((s) => s.id === "faq")
+                                      ?.content.contactSection || {};
+                                  handleSectionUpdate("faq", {
+                                    contactSection: {
+                                      ...currentContact,
+                                      contactText: e.target.value,
+                                    },
+                                  });
+                                }}
+                                placeholder="Contact Support"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   {/* GENERIC PLACEHOLDER */}
                   {activeSection !== "hero" &&
@@ -3365,7 +3731,8 @@ export function LandingPageSettings() {
                     activeSection !== "benefits" &&
                     activeSection !== "cta" &&
                     activeSection !== "testimonials" &&
-                    activeSection !== "footer" && (
+                    activeSection !== "footer" &&
+                    activeSection !== "faq" && (
                       <div className="text-center py-12">
                         <Settings className="h-12 w-12 text-gray-400 mx-auto mb-4" />
                         <h3 className="text-lg font-semibold mb-2">
@@ -3800,6 +4167,69 @@ export function LandingPageSettings() {
                       </div>
                     </div>
                   </div>
+                )}
+                {/* FAQ Section Preview */}
+                {sections.find((s) => s.id === "faq")?.enabled && (
+                  <section className="py-16 bg-gray-50">
+                    <div className="max-w-4xl mx-auto px-6">
+                      <div className="text-center mb-12">
+                        <h2 className="text-3xl font-bold mb-4">
+                          {sections.find((s) => s.id === "faq")?.content.title}
+                        </h2>
+                        <p className="text-gray-600 max-w-2xl mx-auto">
+                          {
+                            sections.find((s) => s.id === "faq")?.content
+                              .subtitle
+                          }
+                        </p>
+                      </div>
+
+                      <div className="space-y-4 mb-12">
+                        {sections
+                          .find((s) => s.id === "faq")
+                          ?.content.faqs?.map((faq: any, index: number) => (
+                            <div
+                              key={index}
+                              className="bg-white rounded-lg border border-gray-200 p-6"
+                            >
+                              <h3 className="font-semibold text-lg mb-3">
+                                {faq.question}
+                              </h3>
+                              <p className="text-gray-600">{faq.answer}</p>
+                            </div>
+                          ))}
+                      </div>
+
+                      <div className="bg-blue-50 rounded-lg p-8 text-center">
+                        <h3 className="text-xl font-semibold mb-2">
+                          {
+                            sections.find((s) => s.id === "faq")?.content
+                              .contactSection?.title
+                          }
+                        </h3>
+                        <p className="text-gray-600 mb-6">
+                          {
+                            sections.find((s) => s.id === "faq")?.content
+                              .contactSection?.subtitle
+                          }
+                        </p>
+                        <div className="flex gap-4 justify-center">
+                          <Button className="bg-blue-600 hover:bg-blue-700">
+                            {
+                              sections.find((s) => s.id === "faq")?.content
+                                .contactSection?.ctaText
+                            }
+                          </Button>
+                          <Button variant="outline">
+                            {
+                              sections.find((s) => s.id === "faq")?.content
+                                .contactSection?.contactText
+                            }
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  </section>
                 )}
 
                 {/* FOOTER */}

@@ -375,7 +375,6 @@ export async function createProductPanel(payload: {
   product_name: string;
   category?: string | null;
   status?: string | null;
-  db_name: string | null;
   description?: string | null;
   db_name: string;
 }) {
@@ -399,7 +398,6 @@ export async function updateProductPanel(
     status?: string | null;
     db_name: string | null;
     description?: string | null;
-    db_name: string;
   }
 ) {
   const res = await fetch(`${API_URL}/products/${id}`, {
