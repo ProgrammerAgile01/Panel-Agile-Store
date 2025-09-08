@@ -1,5 +1,6 @@
 <?php
-use Illuminate\Http\Request;
+
+use App\Http\Controllers\Catalog\ProductCatalogController;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Storage;
 
@@ -223,6 +224,17 @@ Route::post('/uploads', function (Request $r) {
 /*
 
 
+// Route::get('/catalog/products', [ProductSyncController::class, 'index']);
+// Route::get('/catalog/products/{codeOrId}', [ProductSyncController::class, 'show']);
+Route::post('/catalog/products/sync', [ProductSyncController::class, 'sync']);
+
+
+/* ========== KATALOG PUBLIK untuk Warehouse ========== */
+Route::prefix('catalog')->group(function () {
+    Route::get('/products',                [ProductCatalogController::class, 'index']);
+    Route::get('/products/{codeOrId}',     [ProductCatalogController::class, 'show']);
+});
+/*
 |--------------------------------------------------------------------------
 | DIAGNOSTIC (opsional)
 |--------------------------------------------------------------------------

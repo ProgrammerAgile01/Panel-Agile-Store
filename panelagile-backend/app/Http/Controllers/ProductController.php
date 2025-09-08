@@ -101,7 +101,7 @@ class ProductController extends Controller
             'category'     => 'nullable|string|max:80',
             'status'       => 'nullable|string|max:32',
             'description'  => 'nullable|string',
-            'db_name'      => ['required','string','max:60','regex:/^[A-Za-z0-9_]+$/'], // <— NEW (boleh diubah)
+            'db_name'  => 'required|string|max:60',
         ]);
 
         $product->update($data);
@@ -150,35 +150,19 @@ class ProductController extends Controller
         $synced = [];
 
         foreach ($items as $row) {
-            $rawCode = $row['product_code'] ?? null;
-            if (!$rawCode) continue;
-
-            // Normalisasi incoming code: A-Z0-9 only & uppercase
-            $codeNorm = strtoupper(preg_replace('/[^A-Z0-9]/i', '', (string)$rawCode));
-
-            // Cari eksisting berdasar code yang sudah dinormalisasi
-            $existing = Product::where('product_code', $codeNorm)->first();
-
-            $data = [
-                'product_name'        => $row['product_name'] ?? ($existing->product_name ?? $codeNorm),
-                'category'            => $row['category'] ?? ($existing->category ?? null),
-                'status'              => $row['status'] ?? ($existing->status ?? 'Active'),
-                'description'         => $row['description'] ?? ($existing->description ?? null),
-                'total_features'      => $row['total_features'] ?? ($existing->total_features ?? 0),
-                'upstream_updated_at' => $row['updated_at'] ?? ($existing->upstream_updated_at ?? null),
-                // db_name: pakai dari upstream kalau ada, else pertahankan eksisting
-                'db_name'             => $row['db_name'] ?? ($existing->db_name ?? ''),
-            ];
-
-            if ($existing) {
-                $existing->update($data);
-                $synced[] = $existing->fresh();
-            } else {
-                $created = Product::create(array_merge($data, [
-                    'product_code' => $codeNorm,
-                ]));
-                $synced[] = $created;
-            }
+            $product = Product::updateOrCreate(
+                ['product_code' => $row['product_code']],
+                [
+                    'product_name'       => $row['product_name'] ?? '',
+                    'category'           => $row['category'] ?? null,
+                    'status'             => $row['status'] ?? 'Active',
+                    'description'        => $row['description'] ?? null,
+                    'db_name'            => $row['db_name'] ?? null,
+                    'total_features'     => $row['total_features'] ?? 0,
+                    'upstream_updated_at'=> $row['updated_at'] ?? null,
+                ]
+            );
+            $synced[] = $product;
         }
 
         return response()->json([
