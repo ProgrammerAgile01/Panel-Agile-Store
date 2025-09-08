@@ -1008,3 +1008,73 @@ export async function loadPricelistBundle(codeOrId: string) {
   ]);
   return { packages, durations, pricelist };
 }
+
+// GET landing
+export async function getLandingByProduct(codeOrId: string) {
+  const res = await fetch(
+    `${API_URL}/catalog/products/${encodeURIComponent(codeOrId)}/landing`,
+    {
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    }
+  );
+  if (!res.ok) throw new Error(await res.text());
+  return res.json(); // {data:{product,page,sections}}
+}
+
+// SAVE landing (JWT required)
+export async function saveLandingByProduct(
+  codeOrId: string,
+  payload: {
+    status?: "draft" | "published";
+    meta?: Record<string, any>;
+    sections: Array<{
+      id?: string;
+      section_key: string;
+      name: string;
+      enabled: boolean;
+      display_order: number;
+      content?: any;
+    }>;
+  }
+) {
+  const res = await fetch(
+    `${API_URL}/catalog/products/${encodeURIComponent(codeOrId)}/landing`,
+    {
+      method: "PUT",
+      headers: authHeaders({
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      }),
+      body: JSON.stringify(payload),
+    }
+  );
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+// ==================== UPLOAD MEDIA ====================
+export async function uploadFile(file: File): Promise<string> {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  // Ambil header default (Authorization, Accept, dsb)
+  const headers = authHeaders?.() ?? {};
+  // Hapus Content-Type kalau ada, biar browser set boundary multipart
+  if ("Content-Type" in headers) delete (headers as any)["Content-Type"];
+
+  const res = await fetch(`${API_URL}/uploads`, {
+    method: "POST",
+    headers,
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const errText = await res.text().catch(() => res.statusText);
+    throw new Error(`Upload failed: ${res.status} ${errText}`);
+  }
+
+  const data = await res.json();
+  // data.url = "/storage/uploads/xxx.ext"
+  return data.url as string;
+}

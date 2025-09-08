@@ -1,6 +1,7 @@
 <?php
-
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Storage;
 
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\NavItemController;
@@ -13,6 +14,7 @@ use App\Http\Controllers\PackageMatrixController;
 use App\Http\Controllers\DurationController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\PricelistController;
+use App\Http\Controllers\LandingPageController;
 use App\Http\Middleware\PermissionMiddleware;
 use App\Http\Controllers\Catalog\ProductSyncController; 
 
@@ -189,6 +191,35 @@ Route::middleware(['jwt.auth'])->group(function () {
     Route::post('/catalog/products/{codeOrId}/pricelist/bulk',   [PricelistController::class, 'bulkUpsert']);
     
 });
+
+// ==================== Landing Page (Public + JWT Write) ====================
+// BACA (public)
+Route::get('/catalog/products/{codeOrId}/landing', [LandingPageController::class, 'show']);
+
+// TULIS (JWT)
+Route::middleware(['jwt.auth'])->group(function () {
+    Route::put  ('/catalog/products/{codeOrId}/landing', [LandingPageController::class, 'upsert']);
+    Route::patch('/catalog/products/{codeOrId}/landing/sections/{sectionId}', [LandingPageController::class, 'updateSection']);
+    Route::delete('/catalog/products/{codeOrId}/landing/sections/{sectionId}', [LandingPageController::class, 'destroySection']);
+});
+Route::post('/uploads', function (Request $r) {
+    $r->validate([
+        'file' => 'required|file|max:51200|mimetypes:image/jpeg,image/png,image/webp,image/gif,video/mp4,video/quicktime'
+    ]);
+
+    // simpan ke storage/app/public/uploads
+    $path = $r->file('file')->store('uploads', 'public');
+
+    // URL publik → /storage/uploads/xxx.jpg
+    $url  = Storage::disk('public')->url($path);
+
+    return response()->json([
+        'success' => true,
+        'path'    => $path, // contoh: uploads/xxx.jpg (dalam storage/app/public)
+        'url'     => $url   // contoh: /storage/uploads/xxx.jpg (bisa diakses browser)
+    ]);
+})->middleware('jwt.auth');
+
 /*
 
 

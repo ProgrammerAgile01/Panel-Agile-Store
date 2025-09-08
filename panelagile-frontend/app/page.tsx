@@ -19,6 +19,7 @@ import { Pricelist } from "@/components/pricelist";
 import { LevelUser } from "@/components/level-user";
 import { MatrixLevel } from "@/components/matrix-level";
 import { DataUser } from "@/components/data-user";
+import { LandingPageSettings } from "@/components/landing-page-settings";
 
 // API helpers
 import { login as apiLogin, me as apiMe, logout as apiLogout } from "@/lib/api";
@@ -126,6 +127,8 @@ export default function AdminDashboard() {
         return <SettingsManagement />;
       case "integrations":
         return <IntegrationManagement />;
+      case "landing-page-settings":
+        return <LandingPageSettings />;
       default:
         return <DashboardOverview />;
     }
