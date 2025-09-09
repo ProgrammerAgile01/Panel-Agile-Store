@@ -3,6 +3,9 @@
 use App\Http\Controllers\Catalog\ProductCatalogController;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\NavItemController;
@@ -203,24 +206,17 @@ Route::middleware(['jwt.auth'])->group(function () {
     Route::patch('/catalog/products/{codeOrId}/landing/sections/{sectionId}', [LandingPageController::class, 'updateSection']);
     Route::delete('/catalog/products/{codeOrId}/landing/sections/{sectionId}', [LandingPageController::class, 'destroySection']);
 });
-Route::post('/uploads', function (Request $r) {
-    $r->validate([
-        'file' => 'required|file|max:51200|mimetypes:image/jpeg,image/png,image/webp,image/gif,video/mp4,video/quicktime'
+Route::post('/uploads', function () {
+    request()->validate([
+        'file' => 'required|file|max:51200|mimes:jpg,jpeg,png,webp,gif,mp4,mov',
     ]);
 
-    // simpan ke storage/app/public/uploads
-    $path = $r->file('file')->store('uploads', 'public');
+    $path = request()->file('file')->store('uploads', 'public');
+    $rel  = Storage::disk('public')->url($path);
+    $abs  = url($rel);
 
-    // URL publik → /storage/uploads/xxx.jpg
-    $url  = Storage::disk('public')->url($path);
-
-    return response()->json([
-        'success' => true,
-        'path'    => $path, // contoh: uploads/xxx.jpg (dalam storage/app/public)
-        'url'     => $url   // contoh: /storage/uploads/xxx.jpg (bisa diakses browser)
-    ]);
+    return response()->json(['success'=>true,'path'=>$path,'url'=>$abs,'rel_url'=>$rel], 201);
 })->middleware('jwt.auth');
-
 /*
 
 

@@ -37,7 +37,7 @@ import {
   Settings,
   X,
 } from "lucide-react";
-
+import * as Lucide from "lucide-react";
 import { API_URL, fetchMatrixByProduct } from "@/lib/api";
 import { getToken } from "@/lib/auth";
 
@@ -296,8 +296,7 @@ async function uploadMedia(file: File): Promise<string> {
   // fallback: object URL
   return URL.createObjectURL(file);
 }
-
-/* === upload helpers (persist to storage before save) === */
+// === upload helpers ===
 function isBlobOrDataUrl(url?: string | null) {
   if (!url) return false;
   return url.startsWith("blob:") || url.startsWith("data:");
@@ -307,22 +306,30 @@ async function ensureUploadUrl(
   value?: string | File | null
 ): Promise<string | null> {
   if (!value) return null;
+
+  // file lokal → upload
   if (typeof File !== "undefined" && value instanceof File) {
-    return await uploadMedia(value);
+    return await uploadMedia(value); // -> http://localhost:8000/storage/uploads/....
   }
+
   const s = String(value);
+
+  // blob:/data: → fetch & reupload
   if (isBlobOrDataUrl(s)) {
     try {
-      const res = await fetch(s);
-      const blob = await res.blob();
+      const resp = await fetch(s);
+      const blob = await resp.blob();
       const file = new File([blob], `upload-${Date.now()}`, {
         type: blob.type || "application/octet-stream",
       });
       return await uploadMedia(file);
     } catch {
+      // fallback: simpan apa adanya (jarang terjadi)
       return s;
     }
   }
+
+  // URL biasa (YouTube/Vimeo/direct) biarkan
   return s;
 }
 
@@ -1063,10 +1070,10 @@ export function LandingPageSettings() {
     });
   };
 
+  // Upload thumbnail (image/*)
   const handleDemoThumbUpload = async (index: number) => {
     await pickFile("image/*", async (file) => {
       const url = await uploadMedia(file);
-      // update thumbnail
       setSections((prev) =>
         prev.map((s) => {
           if (s.id !== "demo") return s;
@@ -1074,7 +1081,7 @@ export function LandingPageSettings() {
             ? [...s.content.videos]
             : [];
           if (!videos[index])
-            videos[index] = { title: "", duration: "", thumbnail: "" };
+            videos[index] = { title: "", duration: "", thumbnail: "", url: "" };
           videos[index] = { ...videos[index], thumbnail: url };
           return { ...s, content: { ...s.content, videos } };
         })
@@ -1082,6 +1089,7 @@ export function LandingPageSettings() {
     });
   };
 
+  // Upload video (video/*)
   const handleDemoVideoUpload = async (index: number) => {
     await pickFile("video/*", async (file) => {
       const url = await uploadMedia(file);
@@ -1092,12 +1100,114 @@ export function LandingPageSettings() {
             ? [...s.content.videos]
             : [];
           if (!videos[index])
-            videos[index] = { title: "", duration: "", url: "" };
+            videos[index] = { title: "", duration: "", thumbnail: "", url: "" };
           videos[index] = { ...videos[index], url };
           return { ...s, content: { ...s.content, videos } };
         })
       );
     });
+  };
+
+  // ===== Small utils: build preview from URL or file URL =====
+  // ---- helpers: ekstrak ID YouTube/Vimeo ----
+  function getYouTubeId(url?: string) {
+    if (!url) return null;
+    try {
+      const u = new URL(url);
+      if (u.hostname.includes("youtu.be")) return u.pathname.slice(1);
+      if (u.hostname.includes("youtube.com")) {
+        if (u.pathname.startsWith("/embed/")) return u.pathname.split("/")[2];
+        return u.searchParams.get("v");
+      }
+    } catch {}
+    return null;
+  }
+
+  function getVimeoId(url?: string) {
+    if (!url) return null;
+    try {
+      const u = new URL(url);
+      if (u.hostname.includes("vimeo.com")) {
+        const parts = u.pathname.split("/").filter(Boolean);
+        return parts[0] || null;
+      }
+    } catch {}
+    return null;
+  }
+
+  // ---- VideoPreview: tampilkan poster saja, YouTube/Vimeo embed, atau <video> ----
+  const VideoPreview: React.FC<{ url?: string; poster?: string }> = ({
+    url,
+    poster,
+  }) => {
+    // Jika belum ada URL, tapi ada poster → tampilkan poster
+    if (!url) {
+      return poster ? (
+        <div className="aspect-video w-full overflow-hidden rounded-lg bg-black/5">
+          <img
+            src={poster}
+            alt="Video thumbnail"
+            className="h-full w-full object-cover"
+          />
+        </div>
+      ) : null;
+    }
+
+    const yt = getYouTubeId(url);
+    if (yt) {
+      return (
+        <div className="aspect-video w-full overflow-hidden rounded-lg bg-black/5">
+          <iframe
+            className="h-full w-full"
+            src={`https://www.youtube.com/embed/${yt}`}
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            allowFullScreen
+            loading="lazy"
+            title="YouTube preview"
+          />
+        </div>
+      );
+    }
+
+    const vm = getVimeoId(url);
+    if (vm) {
+      return (
+        <div className="aspect-video w-full overflow-hidden rounded-lg bg-black/5">
+          <iframe
+            className="h-full w-full"
+            src={`https://player.vimeo.com/video/${vm}`}
+            allow="autoplay; fullscreen; picture-in-picture"
+            allowFullScreen
+            loading="lazy"
+            title="Vimeo preview"
+          />
+        </div>
+      );
+    }
+
+    // URL file langsung / hasil upload → pakai <video>
+    return (
+      <div className="aspect-video w-full overflow-hidden rounded-lg bg-black/5">
+        <video
+          className="h-full w-full"
+          controls
+          preload="metadata"
+          poster={poster}
+        >
+          <source src={url} />
+        </video>
+        <div className="mt-2 text-right">
+          <a
+            href={url}
+            target="_blank"
+            rel="noreferrer"
+            className="text-xs text-blue-600 underline"
+          >
+            Open video in new tab
+          </a>
+        </div>
+      </div>
+    );
   };
 
   const handleSave = async () => {
@@ -2302,122 +2412,251 @@ export function LandingPageSettings() {
                           placeholder="Demo section title"
                         />
                       </div>
-                      <div>
-                        <div className="flex items-center justify-between mb-4">
-                          <Label>Demo Videos</Label>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="gap-2 bg-transparent"
-                            onClick={() =>
-                              setSections((prev) =>
-                                prev.map((s) =>
-                                  s.id !== "demo"
-                                    ? s
-                                    : {
-                                        ...s,
-                                        content: {
-                                          ...s.content,
-                                          videos: [
-                                            ...(Array.isArray(s.content.videos)
-                                              ? s.content.videos
-                                              : []),
-                                            {
-                                              title: "New Video",
-                                              duration: "",
-                                              thumbnail: "",
-                                              url: "",
-                                            },
-                                          ],
-                                        },
-                                      }
-                                )
+
+                      <div className="flex items-center justify-between mb-4">
+                        <Label>Demo Videos</Label>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="gap-2 bg-transparent"
+                          onClick={() =>
+                            setSections((prev) =>
+                              prev.map((s) =>
+                                s.id !== "demo"
+                                  ? s
+                                  : {
+                                      ...s,
+                                      content: {
+                                        ...s.content,
+                                        videos: [
+                                          ...(Array.isArray(s.content.videos)
+                                            ? s.content.videos
+                                            : []),
+                                          {
+                                            title: "New Video",
+                                            duration: "",
+                                            thumbnail: "",
+                                            url: "",
+                                          },
+                                        ],
+                                      },
+                                    }
                               )
-                            }
-                          >
-                            <Plus className="h-4 w-4" />
-                            Add Video
-                          </Button>
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          {sections
-                            .find((s) => s.id === "demo")
-                            ?.content.videos?.map(
-                              (video: any, index: number) => (
-                                <Card key={index}>
-                                  <CardContent className="p-4">
-                                    <div className="space-y-3">
-                                      <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
-                                        <ImageIcon className="h-8 w-8 text-gray-400 mx-auto mb-2" />
-                                        <p className="text-xs text-gray-600 mb-2">
-                                          Video Thumbnail
-                                        </p>
+                            )
+                          }
+                        >
+                          <Plus className="h-4 w-4" />
+                          Add Video
+                        </Button>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {sections
+                          .find((s) => s.id === "demo")
+                          ?.content.videos?.map((video: any, index: number) => {
+                            // id unik untuk input file
+                            const thumbInputId = `thumb-file-${index}`;
+                            const videoInputId = `video-file-${index}`;
+
+                            // handler upload thumbnail (file lokal)
+                            const onPickThumb: React.ChangeEventHandler<
+                              HTMLInputElement
+                            > = async (e) => {
+                              const file = e.target.files?.[0];
+                              if (!file) return;
+                              try {
+                                const url = await uploadMedia(file); // <-- endpoint /uploads
+                                setSections((prev) =>
+                                  prev.map((s) => {
+                                    if (s.id !== "demo") return s;
+                                    const arr = Array.isArray(s.content.videos)
+                                      ? [...s.content.videos]
+                                      : [];
+                                    if (!arr[index])
+                                      arr[index] = {
+                                        title: "",
+                                        duration: "",
+                                        thumbnail: "",
+                                        url: "",
+                                      };
+                                    arr[index] = {
+                                      ...arr[index],
+                                      thumbnail: url,
+                                    };
+                                    return {
+                                      ...s,
+                                      content: { ...s.content, videos: arr },
+                                    };
+                                  })
+                                );
+                              } finally {
+                                e.target.value = ""; // reset input agar bisa pilih file sama lagi
+                              }
+                            };
+
+                            // handler upload video (file lokal)
+                            const onPickVideo: React.ChangeEventHandler<
+                              HTMLInputElement
+                            > = async (e) => {
+                              const file = e.target.files?.[0];
+                              if (!file) return;
+                              try {
+                                const url = await uploadMedia(file); // <-- endpoint /uploads
+                                setSections((prev) =>
+                                  prev.map((s) => {
+                                    if (s.id !== "demo") return s;
+                                    const arr = Array.isArray(s.content.videos)
+                                      ? [...s.content.videos]
+                                      : [];
+                                    if (!arr[index])
+                                      arr[index] = {
+                                        title: "",
+                                        duration: "",
+                                        thumbnail: "",
+                                        url: "",
+                                      };
+                                    arr[index] = { ...arr[index], url };
+                                    return {
+                                      ...s,
+                                      content: { ...s.content, videos: arr },
+                                    };
+                                  })
+                                );
+                              } finally {
+                                e.target.value = ""; // reset input
+                              }
+                            };
+
+                            return (
+                              <Card key={index}>
+                                <CardContent className="p-4">
+                                  <div className="space-y-3">
+                                    {/* PREVIEW: poster saja / YouTube / Vimeo / <video> */}
+                                    <VideoPreview
+                                      url={video.url}
+                                      poster={video.thumbnail}
+                                    />
+
+                                    {/* THUMBNAIL PICKER */}
+                                    <div className="flex items-center justify-between">
+                                      <Label className="text-xs text-gray-600">
+                                        Thumbnail
+                                      </Label>
+                                      <div className="flex items-center gap-3">
+                                        <input
+                                          id={thumbInputId}
+                                          type="file"
+                                          accept="image/*"
+                                          className="hidden"
+                                          onChange={onPickThumb}
+                                        />
                                         <Button
                                           size="sm"
                                           variant="outline"
                                           onClick={() =>
-                                            handleDemoThumbUpload(index)
+                                            document
+                                              .getElementById(thumbInputId)
+                                              ?.click()
                                           }
                                         >
                                           <Upload className="h-3 w-3 mr-1" />
                                           Upload
                                         </Button>
+                                        {video.thumbnail && (
+                                          <button
+                                            type="button"
+                                            className="text-xs text-red-500 hover:underline"
+                                            onClick={() =>
+                                              setSections((prev) =>
+                                                prev.map((s) => {
+                                                  if (s.id !== "demo") return s;
+                                                  const arr = Array.isArray(
+                                                    s.content.videos
+                                                  )
+                                                    ? [...s.content.videos]
+                                                    : [];
+                                                  arr[index] = {
+                                                    ...arr[index],
+                                                    thumbnail: "",
+                                                  };
+                                                  return {
+                                                    ...s,
+                                                    content: {
+                                                      ...s.content,
+                                                      videos: arr,
+                                                    },
+                                                  };
+                                                })
+                                              )
+                                            }
+                                          >
+                                            Remove
+                                          </button>
+                                        )}
                                       </div>
-                                      <Input
-                                        value={video.title}
-                                        onChange={(e) =>
-                                          setSections((prev) =>
-                                            prev.map((s) => {
-                                              if (s.id !== "demo") return s;
-                                              const arr = Array.isArray(
-                                                s.content.videos
-                                              )
-                                                ? [...s.content.videos]
-                                                : [];
-                                              arr[index] = {
-                                                ...arr[index],
-                                                title: e.target.value,
-                                              };
-                                              return {
-                                                ...s,
-                                                content: {
-                                                  ...s.content,
-                                                  videos: arr,
-                                                },
-                                              };
-                                            })
-                                          )
-                                        }
-                                        placeholder="Video title"
-                                        className="font-medium"
-                                      />
-                                      <Input
-                                        value={video.duration}
-                                        onChange={(e) =>
-                                          setSections((prev) =>
-                                            prev.map((s) => {
-                                              if (s.id !== "demo") return s;
-                                              const arr = Array.isArray(
-                                                s.content.videos
-                                              )
-                                                ? [...s.content.videos]
-                                                : [];
-                                              arr[index] = {
-                                                ...arr[index],
-                                                duration: e.target.value,
-                                              };
-                                              return {
-                                                ...s,
-                                                content: {
-                                                  ...s.content,
-                                                  videos: arr,
-                                                },
-                                              };
-                                            })
-                                          )
-                                        }
-                                        placeholder="Duration (e.g., 2:30)"
-                                      />
+                                    </div>
+
+                                    {/* TITLE */}
+                                    <Input
+                                      value={video.title}
+                                      onChange={(e) =>
+                                        setSections((prev) =>
+                                          prev.map((s) => {
+                                            if (s.id !== "demo") return s;
+                                            const arr = Array.isArray(
+                                              s.content.videos
+                                            )
+                                              ? [...s.content.videos]
+                                              : [];
+                                            arr[index] = {
+                                              ...arr[index],
+                                              title: e.target.value,
+                                            };
+                                            return {
+                                              ...s,
+                                              content: {
+                                                ...s.content,
+                                                videos: arr,
+                                              },
+                                            };
+                                          })
+                                        )
+                                      }
+                                      placeholder="Video title"
+                                      className="font-medium"
+                                    />
+
+                                    {/* DURATION */}
+                                    <Input
+                                      value={video.duration}
+                                      onChange={(e) =>
+                                        setSections((prev) =>
+                                          prev.map((s) => {
+                                            if (s.id !== "demo") return s;
+                                            const arr = Array.isArray(
+                                              s.content.videos
+                                            )
+                                              ? [...s.content.videos]
+                                              : [];
+                                            arr[index] = {
+                                              ...arr[index],
+                                              duration: e.target.value,
+                                            };
+                                            return {
+                                              ...s,
+                                              content: {
+                                                ...s.content,
+                                                videos: arr,
+                                              },
+                                            };
+                                          })
+                                        )
+                                      }
+                                      placeholder="Duration (e.g., 2:30)"
+                                    />
+
+                                    {/* URL + UPLOAD FILE (video) */}
+                                    <div className="flex items-center gap-2">
                                       <Input
                                         value={video.url || ""}
                                         onChange={(e) =>
@@ -2443,50 +2682,71 @@ export function LandingPageSettings() {
                                             })
                                           )
                                         }
-                                        placeholder="Video URL"
+                                        placeholder="Paste YouTube/Vimeo URL atau direct file URL"
                                       />
-                                      <div className="flex gap-2">
-                                        <Button
-                                          size="sm"
-                                          variant="outline"
-                                          className="flex-1 bg-transparent"
-                                        >
-                                          <Edit className="h-4 w-4 mr-1" />
-                                          Edit
-                                        </Button>
-                                        <Button
-                                          size="sm"
-                                          variant="outline"
-                                          onClick={() =>
-                                            setSections((prev) =>
-                                              prev.map((s) => {
-                                                if (s.id !== "demo") return s;
-                                                const arr = Array.isArray(
-                                                  s.content.videos
-                                                )
-                                                  ? [...s.content.videos]
-                                                  : [];
-                                                arr.splice(index, 1);
-                                                return {
-                                                  ...s,
-                                                  content: {
-                                                    ...s.content,
-                                                    videos: arr,
-                                                  },
-                                                };
-                                              })
-                                            )
-                                          }
-                                        >
-                                          <Trash2 className="h-4 w-4" />
-                                        </Button>
-                                      </div>
+                                      <input
+                                        id={videoInputId}
+                                        type="file"
+                                        accept="video/*"
+                                        className="hidden"
+                                        onChange={onPickVideo}
+                                      />
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() =>
+                                          document
+                                            .getElementById(videoInputId)
+                                            ?.click()
+                                        }
+                                      >
+                                        <Upload className="h-3 w-3 mr-1" />
+                                        Upload File
+                                      </Button>
                                     </div>
-                                  </CardContent>
-                                </Card>
-                              )
-                            )}
-                        </div>
+
+                                    {/* Action row */}
+                                    <div className="flex gap-2">
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="flex-1 bg-transparent"
+                                      >
+                                        <Edit className="h-4 w-4 mr-1" />
+                                        Edit
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() =>
+                                          setSections((prev) =>
+                                            prev.map((s) => {
+                                              if (s.id !== "demo") return s;
+                                              const arr = Array.isArray(
+                                                s.content.videos
+                                              )
+                                                ? [...s.content.videos]
+                                                : [];
+                                              arr.splice(index, 1);
+                                              return {
+                                                ...s,
+                                                content: {
+                                                  ...s.content,
+                                                  videos: arr,
+                                                },
+                                              };
+                                            })
+                                          )
+                                        }
+                                      >
+                                        <Trash2 className="h-4 w-4" />
+                                      </Button>
+                                    </div>
+                                  </div>
+                                </CardContent>
+                              </Card>
+                            );
+                          })}
                       </div>
                     </div>
                   )}
@@ -3751,12 +4011,11 @@ export function LandingPageSettings() {
           </div>
         )}
       </div>
-
       {/* PREVIEW MODAL (tidak mengubah style utama) */}
       {showPreview && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div
-            className={`bg-white rounded-lg shadow-2xl max-h=[90vh] overflow-hidden ${
+            className={`bg-white rounded-lg shadow-2xl max-h-[90vh] overflow-hidden ${
               previewMode === "desktop"
                 ? "w-full max-w-6xl"
                 : previewMode === "tablet"
@@ -3764,6 +4023,7 @@ export function LandingPageSettings() {
                 : "w-full max-w-sm"
             }`}
           >
+            {/* Header */}
             <div className="flex items-center justify-between p-4 border-b bg-gray-50">
               <div className="flex items-center gap-3">
                 <h3 className="font-semibold">Landing Page Preview</h3>
@@ -3800,12 +4060,13 @@ export function LandingPageSettings() {
               </Button>
             </div>
 
-            <div className="overflow-y-auto max-h-[calc(90vh-80px)]">
+            {/* Body */}
+            <div className="overflow-y-auto overflow-x-hidden max-h-[calc(90vh-80px)]">
               <div className="bg-white">
                 {/* HERO */}
                 {sections.find((s) => s.id === "hero")?.enabled && (
                   <div
-                    className="text-white py-20 px-6"
+                    className="text-white py-16 sm:py-20 px-4 sm:px-6"
                     style={{
                       background: sections.find((s) => s.id === "hero")?.content
                         .backgroundImage
@@ -3817,16 +4078,16 @@ export function LandingPageSettings() {
                       backgroundColor: "#4f46e5",
                     }}
                   >
-                    <div className="max-w-4xl mx-auto text-center">
-                      <h1 className="text-4xl md:text-6xl font-bold mb-6">
+                    <div className="w-full max-w-4xl mx-auto text-center">
+                      <h1 className="text-3xl md:text-6xl font-bold leading-tight mb-4 md:mb-6">
                         {sections.find((s) => s.id === "hero")?.content.title ||
                           "Default Title"}
                       </h1>
-                      <p className="text-xl md:text-2xl mb-8 text-purple-100">
+                      <p className="text-lg md:text-2xl mb-6 md:mb-8 text-purple-100">
                         {sections.find((s) => s.id === "hero")?.content
                           .subtitle || "Default subtitle"}
                       </p>
-                      <div className="flex flex-col sm:flex-row gap-4 justify-center">
+                      <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center">
                         <Button
                           size="lg"
                           className="bg-white text-purple-600 hover:bg-gray-100"
@@ -3849,35 +4110,47 @@ export function LandingPageSettings() {
 
                 {/* FEATURES */}
                 {sections.find((s) => s.id === "features")?.enabled && (
-                  <div className="py-20 px-6 bg-gray-50">
-                    <div className="max-w-6xl mx-auto">
-                      <div className="text-center mb-16">
-                        <h2 className="text-3xl md:text-4xl font-bold mb-4">
+                  <div className="py-14 sm:py-20 px-4 sm:px-6 bg-gray-50">
+                    <div className="w-full max-w-6xl mx-auto">
+                      <div className="text-center mb-10 sm:mb-16">
+                        <h2 className="text-2xl sm:text-4xl font-bold leading-tight mb-3 sm:mb-4">
                           {sections.find((s) => s.id === "features")?.content
                             .title || "Powerful Features"}
                         </h2>
-                        <p className="text-xl text-gray-600">
+                        <p className="text-base sm:text-xl text-gray-600">
                           {sections.find((s) => s.id === "features")?.content
                             .subtitle || "Everything you need"}
                         </p>
                       </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+
+                      <div
+                        className={`grid ${
+                          previewMode === "mobile"
+                            ? "grid-cols-1"
+                            : previewMode === "tablet"
+                            ? "grid-cols-2"
+                            : "grid-cols-3"
+                        } gap-4 sm:gap-8`}
+                      >
                         {sections
                           .find((s) => s.id === "features")
                           ?.content.features?.map(
                             (feature: any, index: number) => (
                               <div
                                 key={index}
-                                className="bg-white p-6 rounded-lg shadow-sm"
+                                className={`bg-white p-5 sm:p-6 rounded-lg shadow-sm ${
+                                  previewMode === "mobile"
+                                    ? "w-full max-w-sm mx-auto"
+                                    : ""
+                                }`}
                               >
-                                <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center mb-4">
-                                  <div className="w-6 h-6 bg-purple-600 rounded"></div>
+                                <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center mb-3 sm:mb-4">
+                                  <div className="w-6 h-6 bg-purple-600 rounded" />
                                 </div>
-                                {/* pake feature.title (bukan feature.name) */}
-                                <h3 className="text-xl font-semibold mb-2">
+                                <h3 className="text-lg sm:text-xl font-semibold mb-1.5 sm:mb-2 line-clamp-2">
                                   {feature.title}
                                 </h3>
-                                <p className="text-gray-600">
+                                <p className="text-gray-600 text-sm sm:text-base">
                                   {feature.description}
                                 </p>
                               </div>
@@ -3890,25 +4163,38 @@ export function LandingPageSettings() {
 
                 {/* DEMO */}
                 {sections.find((s) => s.id === "demo")?.enabled && (
-                  <div className="py-20 px-6">
-                    <div className="max-w-6xl mx-auto">
-                      <div className="text-center mb-16">
-                        <h2 className="text-3xl md:text-4xl font-bold mb-4">
+                  <div className="py-14 sm:py-20 px-4 sm:px-6">
+                    <div className="w-full max-w-6xl mx-auto">
+                      <div className="text-center mb-10 sm:mb-16">
+                        <h2 className="text-2xl sm:text-4xl font-bold leading-tight mb-3 sm:mb-4">
                           {sections.find((s) => s.id === "demo")?.content
                             .title || "See Product in Action"}
                         </h2>
-                        <p className="text-xl text-gray-600">
+                        <p className="text-base sm:text-xl text-gray-600">
                           {sections.find((s) => s.id === "demo")?.content
                             .subtitle || "Watch how our product works"}
                         </p>
                       </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+
+                      <div
+                        className={`grid ${
+                          previewMode === "mobile"
+                            ? "grid-cols-1"
+                            : previewMode === "tablet"
+                            ? "grid-cols-2"
+                            : "grid-cols-4"
+                        } gap-4 sm:gap-6`}
+                      >
                         {sections
                           .find((s) => s.id === "demo")
                           ?.content.videos?.map((video: any, index: number) => (
                             <div
                               key={index}
-                              className="bg-white rounded-lg shadow-sm overflow-hidden"
+                              className={`bg-white rounded-lg shadow-sm overflow-hidden ${
+                                previewMode === "mobile"
+                                  ? "w-full max-w-xs mx-auto"
+                                  : ""
+                              }`}
                             >
                               <div className="aspect-video bg-gray-900 relative">
                                 {video.thumbnail ? (
@@ -3924,7 +4210,7 @@ export function LandingPageSettings() {
                                 )}
                                 <div className="absolute inset-0 flex items-center justify-center">
                                   <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center opacity-90">
-                                    <div className="w-0 h-0 border-l-4 border-l-gray-900 border-y-2 border-y-transparent ml-1"></div>
+                                    <div className="w-0 h-0 border-l-4 border-l-gray-900 border-y-2 border-y-transparent ml-1" />
                                   </div>
                                 </div>
                               </div>
@@ -3945,21 +4231,36 @@ export function LandingPageSettings() {
 
                 {/* BENEFITS */}
                 {sections.find((s) => s.id === "benefits")?.enabled && (
-                  <div className="py-20 px-6 bg-gray-50">
-                    <div className="max-w-6xl mx-auto">
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+                  <div className="py-14 sm:py-20 px-4 sm:px-6 bg-gray-50">
+                    <div className="w-full max-w-6xl mx-auto">
+                      <div
+                        className={`grid ${
+                          previewMode === "mobile"
+                            ? "grid-cols-1"
+                            : previewMode === "tablet"
+                            ? "grid-cols-2"
+                            : "grid-cols-4"
+                        } gap-6 sm:gap-8`}
+                      >
                         {sections
                           .find((s) => s.id === "benefits")
                           ?.content.benefits?.map(
                             (benefit: any, index: number) => (
-                              <div key={index} className="text-center">
-                                <div className="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                                  <div className="w-8 h-8 bg-purple-600 rounded"></div>
+                              <div
+                                key={index}
+                                className={`text-center ${
+                                  previewMode === "mobile"
+                                    ? "w-full max-w-sm mx-auto"
+                                    : ""
+                                }`}
+                              >
+                                <div className="w-14 h-14 sm:w-16 sm:h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-3 sm:mb-4">
+                                  <div className="w-7 h-7 sm:w-8 sm:h-8 bg-purple-600 rounded" />
                                 </div>
-                                <h3 className="text-xl font-semibold mb-2">
+                                <h3 className="text-lg sm:text-xl font-semibold mb-1.5 sm:mb-2">
                                   {benefit.title}
                                 </h3>
-                                <p className="text-gray-600">
+                                <p className="text-gray-600 text-sm sm:text-base">
                                   {benefit.description}
                                 </p>
                               </div>
@@ -3972,17 +4273,17 @@ export function LandingPageSettings() {
 
                 {/* CTA */}
                 {sections.find((s) => s.id === "cta")?.enabled && (
-                  <div className="py-20 px-6 bg-gradient-to-br from-purple-600 via-indigo-600 to-blue-700 text-white">
-                    <div className="max-w-4xl mx-auto text-center">
-                      <h2 className="text-3xl md:text-5xl font-bold mb-6">
+                  <div className="py-14 sm:py-20 px-4 sm:px-6 bg-gradient-to-br from-purple-600 via-indigo-600 to-blue-700 text-white">
+                    <div className="w-full max-w-4xl mx-auto text-center">
+                      <h2 className="text-2xl sm:text-5xl font-bold leading-tight mb-4 sm:mb-6">
                         {sections.find((s) => s.id === "cta")?.content.title ||
                           "Ready to Transform?"}
                       </h2>
-                      <p className="text-xl mb-8 text-purple-100">
+                      <p className="text-base sm:text-xl mb-6 sm:mb-8 text-purple-100">
                         {sections.find((s) => s.id === "cta")?.content
                           .subtitle || "Join thousands of users"}
                       </p>
-                      <div className="flex flex-col sm:flex-row gap-4 justify-center mb-12">
+                      <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center mb-8 sm:mb-12">
                         <Button
                           size="lg"
                           className="bg-white text-purple-600 hover:bg-gray-100"
@@ -3999,15 +4300,21 @@ export function LandingPageSettings() {
                             .secondaryCta || "View Pricing"}
                         </Button>
                       </div>
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
+                      <div
+                        className={`grid ${
+                          previewMode === "mobile"
+                            ? "grid-cols-2" /* biar 2 kecil di mobile */
+                            : "grid-cols-4"
+                        } gap-6 sm:gap-8`}
+                      >
                         {sections
                           .find((s) => s.id === "cta")
                           ?.content.stats?.map((stat: any, index: number) => (
                             <div key={index} className="text-center">
-                              <div className="text-3xl font-bold">
+                              <div className="text-2xl sm:text-3xl font-bold">
                                 {stat.value}
                               </div>
-                              <div className="text-purple-200">
+                              <div className="text-purple-200 text-sm sm:text-base">
                                 {stat.label}
                               </div>
                             </div>
@@ -4015,13 +4322,13 @@ export function LandingPageSettings() {
                       </div>
                       {!!sections.find((s) => s.id === "cta")?.content.features
                         ?.length && (
-                        <div className="mt-10 flex flex-wrap items-center justify-center gap-3 text-purple-100">
+                        <div className="mt-8 sm:mt-10 flex flex-wrap items-center justify-center gap-2.5 sm:gap-3 text-purple-100">
                           {sections
                             .find((s) => s.id === "cta")
                             ?.content.features.map((f: string, i: number) => (
                               <span
                                 key={i}
-                                className="px-3 py-1 rounded-full border border-white/40 text-sm backdrop-blur-sm"
+                                className="px-3 py-1 rounded-full border border-white/40 text-xs sm:text-sm backdrop-blur-sm"
                               >
                                 {f}
                               </span>
@@ -4034,47 +4341,60 @@ export function LandingPageSettings() {
 
                 {/* PRICING */}
                 {sections.find((s) => s.id === "pricing")?.enabled && (
-                  <div className="py-20 px-6">
-                    <div className="max-w-6xl mx-auto">
-                      <div className="text-center mb-16">
-                        <h2 className="text-3xl md:text-4xl font-bold mb-4">
+                  <div className="py-14 sm:py-20 px-4 sm:px-6">
+                    <div className="w-full max-w-6xl mx-auto">
+                      <div className="text-center mb-10 sm:mb-16">
+                        <h2 className="text-2xl sm:text-4xl font-bold leading-tight mb-3 sm:mb-4">
                           {sections.find((s) => s.id === "pricing")?.content
                             .title || "Choose Your Plan"}
                         </h2>
-                        <p className="text-xl text-gray-600">
+                        <p className="text-base sm:text-xl text-gray-600">
                           {sections.find((s) => s.id === "pricing")?.content
                             .subtitle || "Start your free trial today"}
                         </p>
                       </div>
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+
+                      <div
+                        className={`grid ${
+                          previewMode === "mobile"
+                            ? "grid-cols-1"
+                            : previewMode === "tablet"
+                            ? "grid-cols-2"
+                            : "grid-cols-3"
+                        } gap-6 sm:gap-8`}
+                      >
                         {sections
                           .find((s) => s.id === "pricing")
                           ?.content.plans?.map((plan: any, index: number) => (
                             <div
                               key={index}
-                              className={`bg-white rounded-lg shadow-lg p-8 ${
+                              className={`bg-white rounded-lg shadow-lg p-6 sm:p-8 ${
+                                previewMode === "mobile"
+                                  ? "w-full max-w-sm mx-auto"
+                                  : ""
+                              } ${
                                 plan.popular ? "ring-2 ring-purple-600" : ""
                               }`}
                             >
                               {plan.popular && (
-                                <div className="bg-purple-600 text-white text-sm font-semibold px-3 py-1 rounded-full inline-block mb-4">
+                                <div className="bg-purple-600 text-white text-xs sm:text-sm font-semibold px-3 py-1 rounded-full inline-block mb-3 sm:mb-4">
                                   Most Popular
                                 </div>
                               )}
-                              <h3 className="text-2xl font-bold mb-2">
+                              <h3 className="text-xl sm:text-2xl font-bold mb-1.5 sm:mb-2">
                                 {plan.name}
                               </h3>
-                              <p className="text-gray-600 mb-4">
+                              <p className="text-gray-600 mb-3 sm:mb-4">
                                 {plan.description}
                               </p>
-                              <div className="text-4xl font-bold mb-6">
+                              <div className="text-3xl sm:text-4xl font-bold mb-5 sm:mb-6">
                                 ${plan.price?.monthly ?? plan.price}
-                                <span className="text-lg text-gray-600">
+                                <span className="text-sm sm:text-lg text-gray-600">
                                   /month
                                 </span>
                               </div>
                               <Button
-                                className={`w-full mb-6 ${
+                                className={`w-full mb-5 sm:mb-6 ${
                                   plan.popular
                                     ? "bg-purple-600 hover:bg-purple-700"
                                     : ""
@@ -4082,7 +4402,7 @@ export function LandingPageSettings() {
                               >
                                 {plan.cta}
                               </Button>
-                              <ul className="space-y-3">
+                              <ul className="space-y-2.5 sm:space-y-3 text-sm sm:text-base">
                                 {(plan.features || []).map(
                                   (feature: string, fIndex: number) => (
                                     <li
@@ -4090,9 +4410,11 @@ export function LandingPageSettings() {
                                       className="flex items-center gap-2"
                                     >
                                       <div className="w-4 h-4 bg-green-500 rounded-full flex items-center justify-center">
-                                        <div className="w-2 h-2 bg-white rounded-full"></div>
+                                        <div className="w-2 h-2 bg-white rounded-full" />
                                       </div>
-                                      {feature}
+                                      <span className="break-words">
+                                        {feature}
+                                      </span>
                                     </li>
                                   )
                                 )}
@@ -4106,37 +4428,48 @@ export function LandingPageSettings() {
 
                 {/* TESTIMONIALS */}
                 {sections.find((s) => s.id === "testimonials")?.enabled && (
-                  <div className="py-20 px-6 bg-gray-50">
-                    <div className="max-w-6xl mx-auto">
-                      <div className="text-center mb-16">
-                        <h2 className="text-3xl md:text-4xl font-bold mb-4">
+                  <div className="py-14 sm:py-20 px-4 sm:px-6 bg-gray-50">
+                    <div className="w-full max-w-6xl mx-auto">
+                      <div className="text-center mb-10 sm:mb-16">
+                        <h2 className="text-2xl sm:text-4xl font-bold leading-tight mb-3 sm:mb-4">
                           {sections.find((s) => s.id === "testimonials")
                             ?.content.title || "Trusted Worldwide"}
                         </h2>
-                        <p className="text-xl text-gray-600">
+                        <p className="text-base sm:text-xl text-gray-600">
                           {sections.find((s) => s.id === "testimonials")
                             ?.content.subtitle ||
                             "Join thousands of satisfied customers"}
                         </p>
                       </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-16">
+
+                      <div
+                        className={`grid ${
+                          previewMode === "mobile"
+                            ? "grid-cols-1"
+                            : "grid-cols-2"
+                        } gap-5 sm:gap-8 mb-10 sm:mb-16`}
+                      >
                         {sections
                           .find((s) => s.id === "testimonials")
                           ?.content.testimonials?.map(
                             (testimonial: any, index: number) => (
                               <div
                                 key={index}
-                                className="bg-white p-6 rounded-lg shadow-sm"
+                                className={`bg-white p-5 sm:p-6 rounded-lg shadow-sm ${
+                                  previewMode === "mobile"
+                                    ? "w-full max-w-sm mx-auto"
+                                    : ""
+                                }`}
                               >
-                                <div className="flex mb-4">
+                                <div className="flex mb-3 sm:mb-4">
                                   {[...Array(5)].map((_, i) => (
                                     <div
                                       key={i}
                                       className="w-4 h-4 bg-yellow-400 rounded-sm mr-1"
-                                    ></div>
+                                    />
                                   ))}
                                 </div>
-                                <p className="text-gray-700 mb-4">
+                                <p className="text-gray-700 mb-3 sm:mb-4">
                                   "{testimonial.quote}"
                                 </p>
                                 <div>
@@ -4151,15 +4484,15 @@ export function LandingPageSettings() {
                             )
                           )}
                       </div>
-                      {/* pakai companies (bukan partners) */}
-                      <div className="flex justify-center items-center gap-8 opacity-60">
+
+                      <div className="flex flex-wrap justify-center items-center gap-6 sm:gap-8 opacity-60">
                         {(
                           sections.find((s) => s.id === "testimonials")?.content
                             .companies || []
                         ).map((company: string, index: number) => (
                           <div
                             key={index}
-                            className="text-gray-400 font-semibold"
+                            className="text-gray-400 font-semibold text-sm sm:text-base"
                           >
                             {company}
                           </div>
@@ -4168,15 +4501,16 @@ export function LandingPageSettings() {
                     </div>
                   </div>
                 )}
-                {/* FAQ Section Preview */}
+
+                {/* FAQ */}
                 {sections.find((s) => s.id === "faq")?.enabled && (
-                  <section className="py-16 bg-gray-50">
-                    <div className="max-w-4xl mx-auto px-6">
-                      <div className="text-center mb-12">
-                        <h2 className="text-3xl font-bold mb-4">
+                  <section className="py-12 sm:py-16 bg-gray-50">
+                    <div className="w-full max-w-4xl mx-auto px-4 sm:px-6">
+                      <div className="text-center mb-8 sm:mb-12">
+                        <h2 className="text-2xl sm:text-3xl font-bold mb-3 sm:mb-4">
                           {sections.find((s) => s.id === "faq")?.content.title}
                         </h2>
-                        <p className="text-gray-600 max-w-2xl mx-auto">
+                        <p className="text-gray-600 max-w-2xl mx-auto text-sm sm:text-base">
                           {
                             sections.find((s) => s.id === "faq")?.content
                               .subtitle
@@ -4184,36 +4518,42 @@ export function LandingPageSettings() {
                         </p>
                       </div>
 
-                      <div className="space-y-4 mb-12">
+                      <div className="space-y-3 sm:space-y-4 mb-8 sm:mb-12">
                         {sections
                           .find((s) => s.id === "faq")
                           ?.content.faqs?.map((faq: any, index: number) => (
                             <div
                               key={index}
-                              className="bg-white rounded-lg border border-gray-200 p-6"
+                              className={`bg-white rounded-lg border border-gray-200 p-5 sm:p-6 ${
+                                previewMode === "mobile"
+                                  ? "w-full max-w-sm mx-auto"
+                                  : ""
+                              }`}
                             >
-                              <h3 className="font-semibold text-lg mb-3">
+                              <h3 className="font-semibold text-base sm:text-lg mb-2 sm:mb-3">
                                 {faq.question}
                               </h3>
-                              <p className="text-gray-600">{faq.answer}</p>
+                              <p className="text-gray-600 text-sm sm:text-base">
+                                {faq.answer}
+                              </p>
                             </div>
                           ))}
                       </div>
 
-                      <div className="bg-blue-50 rounded-lg p-8 text-center">
-                        <h3 className="text-xl font-semibold mb-2">
+                      <div className="bg-blue-50 rounded-lg p-6 sm:p-8 text-center">
+                        <h3 className="text-lg sm:text-xl font-semibold mb-2">
                           {
                             sections.find((s) => s.id === "faq")?.content
                               .contactSection?.title
                           }
                         </h3>
-                        <p className="text-gray-600 mb-6">
+                        <p className="text-gray-600 mb-5 sm:mb-6 text-sm sm:text-base">
                           {
                             sections.find((s) => s.id === "faq")?.content
                               .contactSection?.subtitle
                           }
                         </p>
-                        <div className="flex gap-4 justify-center">
+                        <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center">
                           <Button className="bg-blue-600 hover:bg-blue-700">
                             {
                               sections.find((s) => s.id === "faq")?.content
@@ -4234,15 +4574,15 @@ export function LandingPageSettings() {
 
                 {/* FOOTER */}
                 {sections.find((s) => s.id === "footer")?.enabled && (
-                  <div className="bg-gray-900 text-white py-16 px-6">
-                    <div className="max-w-6xl mx-auto">
+                  <div className="bg-gray-900 text-white py-14 sm:py-16 px-4 sm:px-6">
+                    <div className="w-full max-w-6xl mx-auto">
                       <div className="grid grid-cols-1 md:grid-cols-4 gap-8 mb-8">
                         <div>
                           <h3 className="text-xl font-bold mb-4">
                             {sections.find((s) => s.id === "footer")?.content
                               .companyName || "Company"}
                           </h3>
-                          <p className="text-gray-400 mb-4">
+                          <p className="text-gray-400 mb-4 line-clamp-4">
                             {sections.find((s) => s.id === "footer")?.content
                               .description || "Company description"}
                           </p>
@@ -4254,7 +4594,7 @@ export function LandingPageSettings() {
                               <div
                                 key={index}
                                 className="w-8 h-8 bg-gray-700 rounded"
-                              ></div>
+                              />
                             ))}
                           </div>
                         </div>
@@ -4267,7 +4607,7 @@ export function LandingPageSettings() {
                           .map((sec: any, i: number) => (
                             <div key={i}>
                               <h4 className="font-semibold mb-4">
-                                {sec.title || "Links"}
+                                {sec.title || "Links"}{" "}
                               </h4>
                               <ul className="space-y-2 text-gray-400">
                                 {(sec.links || []).map(
@@ -4282,7 +4622,6 @@ export function LandingPageSettings() {
                         <div>
                           <h4 className="font-semibold mb-4">Trust</h4>
                           <div className="space-y-2">
-                            {/* pakai badges (bukan trustBadges) */}
                             {(
                               sections.find((s) => s.id === "footer")?.content
                                 .badges || []
@@ -4291,14 +4630,15 @@ export function LandingPageSettings() {
                                 key={index}
                                 className="flex items-center gap-2 text-sm text-gray-400"
                               >
-                                <div className="w-4 h-4 bg-green-500 rounded-full"></div>
+                                <div className="w-4 h-4 bg-green-500 rounded-full" />
                                 {badge}
                               </div>
                             ))}
                           </div>
                         </div>
                       </div>
-                      <div className="border-top border-gray-800 pt-8 text-center text-gray-400">
+
+                      <div className="border-t border-gray-800 pt-8 text-center text-gray-400">
                         <p>
                           {sections.find((s) => s.id === "footer")?.content
                             .copyright ||

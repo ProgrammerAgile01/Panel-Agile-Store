@@ -1054,27 +1054,54 @@ export async function saveLandingByProduct(
 }
 
 // ==================== UPLOAD MEDIA ====================
+async function tryRefreshToken() {
+  // contoh: pukul endpoint refresh, simpan token baru
+  const resp = await fetch(`${API_URL}/auth/refresh`, {
+    method: "POST",
+    headers: authHeaders(),
+  });
+  if (!resp.ok) return false;
+  const j = await resp.json();
+  if (j?.access_token) {
+    localStorage.setItem("access_token", j.access_token);
+    return true;
+  }
+  return false;
+}
+
 export async function uploadFile(file: File): Promise<string> {
   const formData = new FormData();
   formData.append("file", file);
 
-  // Ambil header default (Authorization, Accept, dsb)
-  const headers = authHeaders?.() ?? {};
-  // Hapus Content-Type kalau ada, biar browser set boundary multipart
-  if ("Content-Type" in headers) delete (headers as any)["Content-Type"];
+  const headers = authHeaders();
+  // JANGAN set Content-Type (biar browser atur multipart boundary)
+  // Pastikan tidak ada "Content-Type" di headers
+  delete (headers as any)["Content-Type"];
 
-  const res = await fetch(`${API_URL}/uploads`, {
+  let res = await fetch(`${API_URL}/uploads`, {
     method: "POST",
     headers,
     body: formData,
   });
 
+  if (res.status === 401) {
+    const refreshed = await tryRefreshToken();
+    if (refreshed) {
+      const headers2 = authHeaders();
+      delete (headers2 as any)["Content-Type"];
+      res = await fetch(`${API_URL}/uploads`, {
+        method: "POST",
+        headers: headers2,
+        body: formData,
+      });
+    }
+  }
+
   if (!res.ok) {
-    const errText = await res.text().catch(() => res.statusText);
-    throw new Error(`Upload failed: ${res.status} ${errText}`);
+    const txt = await res.text().catch(() => res.statusText);
+    throw new Error(`Upload failed: ${res.status} ${txt}`);
   }
 
   const data = await res.json();
-  // data.url = "/storage/uploads/xxx.ext"
-  return data.url as string;
+  return String(data.url); // sebaiknya absolute URL dari backend
 }
