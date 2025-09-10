@@ -19,6 +19,8 @@ use App\Http\Controllers\DurationController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\PricelistController;
 use App\Http\Controllers\LandingPageController;
+use App\Http\Controllers\CustomersController;
+use App\Http\Controllers\OrdersController;
 use App\Http\Middleware\PermissionMiddleware;
 use App\Http\Controllers\Catalog\ProductSyncController; 
 
@@ -217,6 +219,31 @@ Route::post('/uploads', function () {
 
     return response()->json(['success'=>true,'path'=>$path,'url'=>$abs,'rel_url'=>$rel], 201);
 })->middleware('jwt.auth');
+
+// ==================== Customer dan Order ====================
+Route::middleware(['jwt.auth'])->group(function () {
+
+    // Orders CRUD + stats
+    Route::get   ('/orders',               [OrdersController::class, 'index']);
+    Route::post  ('/orders',               [OrdersController::class, 'store']);
+    Route::get   ('/orders/stats',         [OrdersController::class, 'stats']); // dipakai fetchStats('orders')
+    Route::get   ('/orders/{id}',          [OrdersController::class, 'show']);
+    Route::put   ('/orders/{id}',          [OrdersController::class, 'update']);
+    Route::patch ('/orders/{id}',          [OrdersController::class, 'update']);
+    Route::delete('/orders/{id}',          [OrdersController::class, 'destroy']);
+
+    // Helper set provision_notified_at = now()
+    Route::patch ('/orders/{id}/provision-notified', [OrdersController::class, 'markProvisionNotified']);
+
+    // Customers (read-only untuk panel)
+    Route::get('/customers',     [CustomersController::class, 'index']);
+    Route::get('/customers/{id}',[CustomersController::class, 'show']);
+
+    // NEW: subscriptions (satu baris per customer × product)
+    Route::get('/customer-subscriptions', [CustomersController::class, 'subscriptions']);
+    Route::get('/customer-subscriptions/stats', [CustomersController::class, 'subscriptionStats']);
+
+});
 /*
 
 
