@@ -36,6 +36,7 @@ import {
   Layout,
   Settings,
   X,
+  Palette,
 } from "lucide-react";
 import * as Lucide from "lucide-react";
 import { API_URL, fetchMatrixByProduct } from "@/lib/api";
@@ -71,6 +72,18 @@ type PricelistItemDTO = {
   effective_end?: string | null;
   package_code?: string | null;
   duration_code?: string | null;
+};
+
+type ColorTheme = {
+  primary: string;
+  secondary: string;
+  accent: string;
+  background: string;
+  text: string;
+  muted: string;
+  success: string;
+  warning: string;
+  error: string;
 };
 
 /* ================== API helpers ================== */
@@ -615,6 +628,17 @@ const DEFAULT_SECTIONS: LandingPageSectionUI[] = [
     },
   },
 ];
+const DEFAULT_THEME: ColorTheme = {
+  primary: "#7c3aed",
+  secondary: "#4f46e5",
+  accent: "#3b82f6",
+  background: "#ffffff",
+  text: "#1f2937",
+  muted: "#6b7280",
+  success: "#10b981",
+  warning: "#f59e0b",
+  error: "#ef4444",
+};
 
 /* ================== Component ================== */
 export function LandingPageSettings() {
@@ -630,6 +654,12 @@ export function LandingPageSettings() {
   const [loading, setLoading] = useState(false);
   const [featureBind, setFeatureBind] = useState<boolean>(true); // bind fitur ke product features
   const [showPreview, setShowPreview] = useState<boolean>(false);
+  const [themes, setThemes] = useState<Record<string, ColorTheme>>({});
+  const colorTheme = useMemo(
+    () =>
+      activeSection ? themes[activeSection] ?? DEFAULT_THEME : DEFAULT_THEME,
+    [themes, activeSection]
+  );
 
   // relations caches
   const [packages, setPackages] = useState<
@@ -792,7 +822,32 @@ export function LandingPageSettings() {
   }
   // dekat pricelistRef, durationsRef, featuresRef
   const matrixFeaturesRef = useRef<Record<string, string[]>>({});
+  const setThemeForSection = (
+    sectionId: string,
+    next: ColorTheme | ((prev: ColorTheme) => ColorTheme)
+  ) => {
+    setThemes((prevMap) => {
+      const prev = prevMap[sectionId] ?? DEFAULT_THEME;
+      const resolved = typeof next === "function" ? (next as any)(prev) : next;
 
+      // sinkronkan langsung ke state sections agar ikut tersimpan
+      setSections((prevSecs) =>
+        prevSecs.map((s) =>
+          s.id === sectionId
+            ? {
+                ...s,
+                content: {
+                  ...(s.content ?? {}),
+                  theme: resolved,
+                },
+              }
+            : s
+        )
+      );
+
+      return { ...prevMap, [sectionId]: resolved };
+    });
+  };
   /* ---------- Load products ---------- */
   useEffect(() => {
     let mounted = true;
@@ -855,7 +910,6 @@ export function LandingPageSettings() {
 
         // ── MATRIX → peta fitur per paket (non-blocking)
         let featureNamesByPkg: Record<string, string[]> = {};
-        // ── MATRIX → peta fitur per paket (non-blocking)
         try {
           if (mx.status === "fulfilled") {
             const data = mx.value?.data || {};
@@ -891,13 +945,14 @@ export function LandingPageSettings() {
                   .filter(Boolean),
               ])
             );
+            featureNamesByPkg = matrixFeaturesRef.current;
           }
         } catch (err) {
           console.warn("matrix parse failed:", err);
           matrixFeaturesRef.current = {};
         }
 
-        // ── landing → sections UI
+        // ── landing → sections UI + hydrate themes per-section
         if (landing.status === "fulfilled" && mounted) {
           const apiSections = Array.isArray(landing.value.sections)
             ? landing.value.sections
@@ -916,14 +971,28 @@ export function LandingPageSettings() {
               .sort((a: any, b: any) => a.order - b.order);
 
             setSections(mapped);
+
+            // Hydrate themes dari content.theme setiap section
+            const loadedThemes: Record<string, ColorTheme> = {};
+            for (const sec of mapped) {
+              const t = (sec.content as any)?.theme;
+              if (t && typeof t === "object") {
+                loadedThemes[sec.id] = { ...DEFAULT_THEME, ...t };
+              }
+            }
+            setThemes(loadedThemes);
+
+            // Pastikan activeSection valid
             const exists = mapped.some((m) => m.id === activeSection);
             if (!exists && mapped.length) setActiveSection(mapped[0].id);
           } else {
             setSections(DEFAULT_SECTIONS);
+            setThemes({}); // kosong, nanti pakai default saat edit
             setActiveSection("hero");
           }
         } else if (mounted) {
           setSections(DEFAULT_SECTIONS);
+          setThemes({});
           setActiveSection("hero");
         }
 
@@ -958,7 +1027,6 @@ export function LandingPageSettings() {
           const dursArr =
             durs.status === "fulfilled" ? durs.value : durationsRef.current;
 
-          // belum ada durations? jangan timpa isi lama
           if (Array.isArray(dursArr) && dursArr.length) {
             const monthly = dursArr.find((d) => d.months === 1) || dursArr[0];
             const yearly =
@@ -997,7 +1065,6 @@ export function LandingPageSettings() {
                       monthly: priceOf(p.id, monthly.id) ?? 0,
                       yearly: priceOf(p.id, yearly.id) ?? 0,
                     },
-                    // pakai fitur dari matrix bila ada; jika tidak, fallback
                     features:
                       Array.isArray(fromMatrix) && fromMatrix.length
                         ? fromMatrix
@@ -1021,6 +1088,7 @@ export function LandingPageSettings() {
         console.error(e);
         if (mounted) {
           setSections(DEFAULT_SECTIONS);
+          setThemes({});
           setActiveSection("hero");
         }
       } finally {
@@ -1031,6 +1099,7 @@ export function LandingPageSettings() {
     return () => {
       mounted = false;
     };
+    // dependensi tetap: selectedProduct, featureBind, priceOf
   }, [selectedProduct, featureBind, priceOf]);
 
   /* ---------- UI handlers ---------- */
@@ -1214,25 +1283,37 @@ export function LandingPageSettings() {
     if (!selectedProduct) return;
     setSaving(true);
     try {
-      // pastikan URL media bukan blob: (upload jika perlu)
+      // pastikan URL media bukan blob (upload jika perlu)
       const cleanSections = await materializeUploads(sections);
 
-      // 1) Save Landing Page
+      // 1) Save Landing Page (sertakan theme masing-masing section)
       const payload = {
         status: "published" as const,
         meta: null as Record<string, any> | null,
         sections: cleanSections
           .slice()
           .sort((a, b) => a.order - b.order)
-          .map((s) => ({
-            id: s._recordId,
-            section_key: s.id,
-            name: s.name,
-            enabled: !!s.enabled,
-            display_order: Number(s.order ?? 0),
-            content: s.content ?? {},
-          })),
+          .map((s) => {
+            const themeForThis: ColorTheme =
+              themes[s.id] ??
+              (s.content?.theme
+                ? { ...DEFAULT_THEME, ...(s.content.theme as any) }
+                : DEFAULT_THEME);
+
+            return {
+              id: s._recordId,
+              section_key: s.id,
+              name: s.name,
+              enabled: !!s.enabled,
+              display_order: Number(s.order ?? 0),
+              content: {
+                ...(s.content ?? {}),
+                theme: themeForThis,
+              },
+            };
+          }),
       };
+
       await saveLandingByProduct(selectedProduct, payload);
 
       // 2) Save Pricelist when pricing section exists
@@ -1278,7 +1359,7 @@ export function LandingPageSettings() {
         }
       }
 
-      // 3) refresh sections from server biar id DB update
+      // 3) Refresh sections from server supaya _recordId up-to-date
       const fresh = await getLandingByProduct(selectedProduct);
       const mapped: LandingPageSectionUI[] = (fresh.sections || [])
         .map((s: any) => ({
@@ -1290,7 +1371,18 @@ export function LandingPageSettings() {
           _recordId: s.id,
         }))
         .sort((a: any, b: any) => a.order - b.order);
+
       setSections(mapped);
+
+      // Re-hydrate themes dari server (aman jika ada normalisasi dari backend)
+      const loadedThemes: Record<string, ColorTheme> = {};
+      for (const sec of mapped) {
+        const t = (sec.content as any)?.theme;
+        if (t && typeof t === "object") {
+          loadedThemes[sec.id] = { ...DEFAULT_THEME, ...t };
+        }
+      }
+      setThemes(loadedThemes);
 
       alert("Saved successfully.");
     } catch (e: any) {
@@ -3982,6 +4074,350 @@ export function LandingPageSettings() {
                       </div>
                     </div>
                   )}
+                  {/* Color Theme Settings */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <Palette className="h-5 w-5" />
+                        Color Theme {activeSection ? `— ${activeSection}` : ""}
+                      </CardTitle>
+                      <CardDescription>
+                        Customize the color scheme for your landing page
+                      </CardDescription>
+                    </CardHeader>
+
+                    <CardContent className="space-y-4">
+                      <div className="grid grid-cols-2 gap-4">
+                        {/* Primary */}
+                        <div className="space-y-2">
+                          <Label htmlFor="primary-color">Primary Color</Label>
+                          <div className="flex items-center gap-2">
+                            <Input
+                              id="primary-color"
+                              type="color"
+                              disabled={!activeSection}
+                              value={colorTheme.primary}
+                              onChange={(e) =>
+                                setThemeForSection(activeSection!, (prev) => ({
+                                  ...prev,
+                                  primary: e.target.value,
+                                }))
+                              }
+                              className="w-12 h-10 p-1 border rounded"
+                            />
+                            <Input
+                              disabled={!activeSection}
+                              value={colorTheme.primary}
+                              onChange={(e) =>
+                                setThemeForSection(activeSection!, (prev) => ({
+                                  ...prev,
+                                  primary: e.target.value,
+                                }))
+                              }
+                              placeholder="#7c3aed"
+                              className="flex-1"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Secondary */}
+                        <div className="space-y-2">
+                          <Label htmlFor="secondary-color">
+                            Secondary Color
+                          </Label>
+                          <div className="flex items-center gap-2">
+                            <Input
+                              id="secondary-color"
+                              type="color"
+                              disabled={!activeSection}
+                              value={colorTheme.secondary}
+                              onChange={(e) =>
+                                setThemeForSection(activeSection!, (prev) => ({
+                                  ...prev,
+                                  secondary: e.target.value,
+                                }))
+                              }
+                              className="w-12 h-10 p-1 border rounded"
+                            />
+                            <Input
+                              disabled={!activeSection}
+                              value={colorTheme.secondary}
+                              onChange={(e) =>
+                                setThemeForSection(activeSection!, (prev) => ({
+                                  ...prev,
+                                  secondary: e.target.value,
+                                }))
+                              }
+                              placeholder="#4f46e5"
+                              className="flex-1"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Accent */}
+                        <div className="space-y-2">
+                          <Label htmlFor="accent-color">Accent Color</Label>
+                          <div className="flex items-center gap-2">
+                            <Input
+                              id="accent-color"
+                              type="color"
+                              disabled={!activeSection}
+                              value={colorTheme.accent}
+                              onChange={(e) =>
+                                setThemeForSection(activeSection!, (prev) => ({
+                                  ...prev,
+                                  accent: e.target.value,
+                                }))
+                              }
+                              className="w-12 h-10 p-1 border rounded"
+                            />
+                            <Input
+                              disabled={!activeSection}
+                              value={colorTheme.accent}
+                              onChange={(e) =>
+                                setThemeForSection(activeSection!, (prev) => ({
+                                  ...prev,
+                                  accent: e.target.value,
+                                }))
+                              }
+                              placeholder="#3b82f6"
+                              className="flex-1"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Background */}
+                        <div className="space-y-2">
+                          <Label htmlFor="background-color">
+                            Background Color
+                          </Label>
+                          <div className="flex items-center gap-2">
+                            <Input
+                              id="background-color"
+                              type="color"
+                              disabled={!activeSection}
+                              value={colorTheme.background}
+                              onChange={(e) =>
+                                setThemeForSection(activeSection!, (prev) => ({
+                                  ...prev,
+                                  background: e.target.value,
+                                }))
+                              }
+                              className="w-12 h-10 p-1 border rounded"
+                            />
+                            <Input
+                              disabled={!activeSection}
+                              value={colorTheme.background}
+                              onChange={(e) =>
+                                setThemeForSection(activeSection!, (prev) => ({
+                                  ...prev,
+                                  background: e.target.value,
+                                }))
+                              }
+                              placeholder="#ffffff"
+                              className="flex-1"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Text */}
+                        <div className="space-y-2">
+                          <Label htmlFor="text-color">Text Color</Label>
+                          <div className="flex items-center gap-2">
+                            <Input
+                              id="text-color"
+                              type="color"
+                              disabled={!activeSection}
+                              value={colorTheme.text}
+                              onChange={(e) =>
+                                setThemeForSection(activeSection!, (prev) => ({
+                                  ...prev,
+                                  text: e.target.value,
+                                }))
+                              }
+                              className="w-12 h-10 p-1 border rounded"
+                            />
+                            <Input
+                              disabled={!activeSection}
+                              value={colorTheme.text}
+                              onChange={(e) =>
+                                setThemeForSection(activeSection!, (prev) => ({
+                                  ...prev,
+                                  text: e.target.value,
+                                }))
+                              }
+                              placeholder="#1f2937"
+                              className="flex-1"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Muted */}
+                        <div className="space-y-2">
+                          <Label htmlFor="muted-color">Muted Text Color</Label>
+                          <div className="flex items-center gap-2">
+                            <Input
+                              id="muted-color"
+                              type="color"
+                              disabled={!activeSection}
+                              value={colorTheme.muted}
+                              onChange={(e) =>
+                                setThemeForSection(activeSection!, (prev) => ({
+                                  ...prev,
+                                  muted: e.target.value,
+                                }))
+                              }
+                              className="w-12 h-10 p-1 border rounded"
+                            />
+                            <Input
+                              disabled={!activeSection}
+                              value={colorTheme.muted}
+                              onChange={(e) =>
+                                setThemeForSection(activeSection!, (prev) => ({
+                                  ...prev,
+                                  muted: e.target.value,
+                                }))
+                              }
+                              placeholder="#6b7280"
+                              className="flex-1"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Color Presets */}
+                      <div className="space-y-2">
+                        <Label>Color Presets</Label>
+                        <div className="flex gap-2 flex-wrap">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={!activeSection}
+                            onClick={() =>
+                              setThemeForSection(activeSection!, {
+                                primary: "#7c3aed",
+                                secondary: "#4f46e5",
+                                accent: "#3b82f6",
+                                background: "#ffffff",
+                                text: "#1f2937",
+                                muted: "#6b7280",
+                                success: "#10b981",
+                                warning: "#f59e0b",
+                                error: "#ef4444",
+                              })
+                            }
+                          >
+                            Purple Theme
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={!activeSection}
+                            onClick={() =>
+                              setThemeForSection(activeSection!, {
+                                primary: "#059669",
+                                secondary: "#0d9488",
+                                accent: "#06b6d4",
+                                background: "#ffffff",
+                                text: "#1f2937",
+                                muted: "#6b7280",
+                                success: "#10b981",
+                                warning: "#f59e0b",
+                                error: "#ef4444",
+                              })
+                            }
+                          >
+                            Green Theme
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={!activeSection}
+                            onClick={() =>
+                              setThemeForSection(activeSection!, {
+                                primary: "#dc2626",
+                                secondary: "#ea580c",
+                                accent: "#f59e0b",
+                                background: "#ffffff",
+                                text: "#1f2937",
+                                muted: "#6b7280",
+                                success: "#10b981",
+                                warning: "#f59e0b",
+                                error: "#ef4444",
+                              })
+                            }
+                          >
+                            Red Theme
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={!activeSection}
+                            onClick={() =>
+                              setThemeForSection(activeSection!, {
+                                primary: "#1f2937",
+                                secondary: "#374151",
+                                accent: "#6b7280",
+                                background: "#ffffff",
+                                text: "#1f2937",
+                                muted: "#6b7280",
+                                success: "#10b981",
+                                warning: "#f59e0b",
+                                error: "#ef4444",
+                              })
+                            }
+                          >
+                            Dark Theme
+                          </Button>
+                        </div>
+                      </div>
+
+                      {/* Color Preview */}
+                      <div className="space-y-2">
+                        <Label>Preview</Label>
+                        <div
+                          className="p-4 rounded-lg border"
+                          style={{ backgroundColor: colorTheme.background }}
+                        >
+                          <h3
+                            className="text-lg font-semibold mb-2"
+                            style={{ color: colorTheme.text }}
+                          >
+                            Sample Heading
+                          </h3>
+                          <p
+                            className="mb-3"
+                            style={{ color: colorTheme.muted }}
+                          >
+                            This is how your text will look with the selected
+                            colors.
+                          </p>
+                          <div className="flex gap-2">
+                            <Button
+                              size="sm"
+                              style={{
+                                backgroundColor: colorTheme.primary,
+                                color: colorTheme.background,
+                                border: "none",
+                              }}
+                            >
+                              Primary Button
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              style={{
+                                borderColor: colorTheme.secondary,
+                                color: colorTheme.secondary,
+                              }}
+                            >
+                              Secondary Button
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
 
                   {/* GENERIC PLACEHOLDER */}
                   {activeSection !== "hero" &&
@@ -4068,14 +4504,7 @@ export function LandingPageSettings() {
                   <div
                     className="text-white py-16 sm:py-20 px-4 sm:px-6"
                     style={{
-                      background: sections.find((s) => s.id === "hero")?.content
-                        .backgroundImage
-                        ? `url("${
-                            sections.find((s) => s.id === "hero")?.content
-                              .backgroundImage
-                          }") center/cover no-repeat`
-                        : undefined,
-                      backgroundColor: "#4f46e5",
+                      background: `linear-gradient(135deg, ${colorTheme.primary}, ${colorTheme.secondary}, ${colorTheme.accent})`,
                     }}
                   >
                     <div className="w-full max-w-4xl mx-auto text-center">
@@ -4091,6 +4520,10 @@ export function LandingPageSettings() {
                         <Button
                           size="lg"
                           className="bg-white text-purple-600 hover:bg-gray-100"
+                          style={{
+                            backgroundColor: colorTheme.background,
+                            color: colorTheme.primary,
+                          }}
                         >
                           {sections.find((s) => s.id === "hero")?.content
                             .ctaText || "Get Started"}
@@ -4099,6 +4532,12 @@ export function LandingPageSettings() {
                           size="lg"
                           variant="outline"
                           className="border-white text-white hover:bg-white hover:text-purple-600 bg-transparent"
+                          style={
+                            {
+                              borderColor: colorTheme.background,
+                              "--tw-text-opacity": "1",
+                            } as React.CSSProperties
+                          }
                         >
                           {sections.find((s) => s.id === "hero")?.content
                             .secondaryCta || "Learn More"}
@@ -4145,7 +4584,10 @@ export function LandingPageSettings() {
                                 }`}
                               >
                                 <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center mb-3 sm:mb-4">
-                                  <div className="w-6 h-6 bg-purple-600 rounded" />
+                                  <div className="w-6 h-6 bg-purple-600 rounded" 
+                                  style={{
+                      background: `linear-gradient(135deg, ${colorTheme.primary}, ${colorTheme.secondary}, ${colorTheme.accent})`,
+                    }}/>
                                 </div>
                                 <h3 className="text-lg sm:text-xl font-semibold mb-1.5 sm:mb-2 line-clamp-2">
                                   {feature.title}
@@ -4255,7 +4697,12 @@ export function LandingPageSettings() {
                                 }`}
                               >
                                 <div className="w-14 h-14 sm:w-16 sm:h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-3 sm:mb-4">
-                                  <div className="w-7 h-7 sm:w-8 sm:h-8 bg-purple-600 rounded" />
+                                  <div
+                                    className="w-7 h-7 sm:w-8 sm:h-8 bg-purple-600 rounded"
+                                    style={{
+                                      background: `linear-gradient(135deg, ${colorTheme.primary}, ${colorTheme.secondary}, ${colorTheme.accent})`,
+                                    }}
+                                  />
                                 </div>
                                 <h3 className="text-lg sm:text-xl font-semibold mb-1.5 sm:mb-2">
                                   {benefit.title}
@@ -4273,7 +4720,12 @@ export function LandingPageSettings() {
 
                 {/* CTA */}
                 {sections.find((s) => s.id === "cta")?.enabled && (
-                  <div className="py-14 sm:py-20 px-4 sm:px-6 bg-gradient-to-br from-purple-600 via-indigo-600 to-blue-700 text-white">
+                  <div
+                    className="py-14 sm:py-20 px-4 sm:px-6 bg-gradient-to-br from-purple-600 via-indigo-600 to-blue-700 text-white"
+                    style={{
+                      background: `linear-gradient(135deg, ${colorTheme.primary}, ${colorTheme.secondary}, ${colorTheme.accent})`,
+                    }}
+                  >
                     <div className="w-full max-w-4xl mx-auto text-center">
                       <h2 className="text-2xl sm:text-5xl font-bold leading-tight mb-4 sm:mb-6">
                         {sections.find((s) => s.id === "cta")?.content.title ||
@@ -4287,6 +4739,10 @@ export function LandingPageSettings() {
                         <Button
                           size="lg"
                           className="bg-white text-purple-600 hover:bg-gray-100"
+                          style={{
+                            backgroundColor: colorTheme.background,
+                            color: colorTheme.primary,
+                          }}
                         >
                           {sections.find((s) => s.id === "cta")?.content
                             .primaryCta || "Start Free Trial"}
@@ -4295,6 +4751,12 @@ export function LandingPageSettings() {
                           size="lg"
                           variant="outline"
                           className="border-white text-white hover:bg-white hover:text-purple-600 bg-transparent"
+                          style={
+                            {
+                              borderColor: colorTheme.background,
+                              "--tw-text-opacity": "1",
+                            } as React.CSSProperties
+                          }
                         >
                           {sections.find((s) => s.id === "cta")?.content
                             .secondaryCta || "View Pricing"}
@@ -4394,11 +4856,15 @@ export function LandingPageSettings() {
                                 </span>
                               </div>
                               <Button
-                                className={`w-full mb-5 sm:mb-6 ${
-                                  plan.popular
-                                    ? "bg-purple-600 hover:bg-purple-700"
-                                    : ""
-                                }`}
+                                className={`w-full mb-5 sm:mb-6 
+                                  ${
+                                    plan.popular
+                                      ? "bg-purple-600 hover:bg-purple-700"
+                                      : ""
+                                  }`}
+                                style={{
+                                  background: `linear-gradient(135deg, ${colorTheme.primary}, ${colorTheme.secondary}, ${colorTheme.accent})`,
+                                }}
                               >
                                 {plan.cta}
                               </Button>
@@ -4554,13 +5020,26 @@ export function LandingPageSettings() {
                           }
                         </p>
                         <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center">
-                          <Button className="bg-blue-600 hover:bg-blue-700">
+                          <Button
+                            className="bg-blue-600 hover:bg-blue-700"
+                           style={{
+                      background: `linear-gradient(135deg, ${colorTheme.primary}, ${colorTheme.secondary}, ${colorTheme.accent})`,
+                    }}
+                          >
                             {
                               sections.find((s) => s.id === "faq")?.content
                                 .contactSection?.ctaText
                             }
                           </Button>
-                          <Button variant="outline">
+                          <Button
+                            variant="outline"
+                            style={
+                              {
+                                borderColor: colorTheme.background,
+                                "--tw-text-opacity": "1",
+                              } as React.CSSProperties
+                            }
+                          >
                             {
                               sections.find((s) => s.id === "faq")?.content
                                 .contactSection?.contactText
