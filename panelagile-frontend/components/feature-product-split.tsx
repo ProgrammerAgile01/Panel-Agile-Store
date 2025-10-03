@@ -196,6 +196,7 @@ export function FeatureProductSplit() {
         : Array.isArray(fjson)
         ? fjson
         : [];
+        console.log(fjson.data)
       const { global, modules } = splitFeaturesByModule(frows);
 
       let menusUI: MenuGroup[] = [];

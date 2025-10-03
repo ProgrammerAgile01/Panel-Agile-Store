@@ -257,6 +257,12 @@ Route::prefix('catalog')->group(function () {
     Route::get('/products',                [ProductCatalogController::class, 'index']);
     Route::get('/products/{codeOrId}',     [ProductCatalogController::class, 'show']);
 });
+// Features & Menus (READ-ONLY mirror + SYNC)
+Route::get ('/catalog/products/{codeOrId}/features',      [ProductFeatureController::class, 'listFeatures']);
+Route::post('/catalog/products/{codeOrId}/features/sync', [ProductFeatureController::class, 'syncFeatures']);
+Route::get ('/catalog/products/{codeOrId}/menus',         [ProductFeatureController::class, 'listMenus']);
+Route::post('/catalog/products/{codeOrId}/menus/sync',    [ProductFeatureController::class, 'syncMenus']);
+
 /*
 |--------------------------------------------------------------------------
 | DIAGNOSTIC (opsional)

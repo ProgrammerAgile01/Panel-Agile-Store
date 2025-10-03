@@ -63,4 +63,16 @@ class WarehouseClient
         if ($productCode) $q['product_code'] = $productCode;
         return $this->get("catalog/menus/tree", $q);
     }
+   
+public function featuresByProduct(string $code): array
+{
+    return $this->get("features/{$code}");
 }
+// atau kalau mau tetap di namespace /catalog:
+public function featuresByProductViaCatalog(string $code): array
+{
+    return $this->get("features/{$code}"); // karena di Warehouse kita expose /api/features/{product}
+}
+}
+
+
