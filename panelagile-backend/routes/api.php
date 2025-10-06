@@ -25,6 +25,8 @@ use App\Http\Middleware\PermissionMiddleware;
 use App\Http\Controllers\Catalog\ProductSyncController; 
 use App\Http\Controllers\Store\OfferingMatrixController;
 use App\Http\Middleware\VerifyServiceKey;
+use App\Http\Controllers\AgileStoreSettingsController;
+
 
 
 /*
@@ -240,6 +242,15 @@ Route::post('/uploads', function () {
 
     return response()->json(['success'=>true,'path'=>$path,'url'=>$abs,'rel_url'=>$rel], 201);
 })->middleware('jwt.auth');
+
+// ==================== Agile Store setting ====================
+
+Route::prefix('agile-store')->group(function () {
+    Route::get('/sections',        [AgileStoreSettingsController::class, 'index']);
+    Route::get('/sections/{key}',  [AgileStoreSettingsController::class, 'show'])->whereAlphaNumeric('key');
+    Route::post('/sections/upsert',[AgileStoreSettingsController::class, 'upsert']);
+});
+
 
 // ==================== Customer dan Order ====================
 Route::middleware(['jwt.auth'])->group(function () {

@@ -1105,3 +1105,84 @@ export async function uploadFile(file: File): Promise<string> {
   const data = await res.json();
   return String(data.url); // sebaiknya absolute URL dari backend
 }
+
+/* ===================== AGILE STORE SETTINGS ===================== */
+
+export type AgileSection = {
+  id?: number;
+  key:
+    | "hero"
+    | "why"
+    | "how"
+    | "products"
+    | "pricing"
+    | "cta"
+    | "testimonials"
+    | "footer"
+    | "about"
+    | "contact";
+  name: string;
+  enabled: boolean;
+  order: number;
+  theme?: any | null;
+  content?: any | null;
+  items?: any[];
+};
+
+// Kembalikan SELALU { data: AgileSection[] }
+export async function getAgileSections(): Promise<{ data: AgileSection[] }> {
+  const res = await fetch(`${API_URL}/agile-store/sections`, {
+    headers: authHeaders({ Accept: "application/json" }),
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    await parseError(res); // throws
+    throw new Error("Failed to load sections"); // TS happy
+  }
+  const json = await res.json().catch(() => ({}));
+  const rows: AgileSection[] = Array.isArray(json?.data)
+    ? json.data
+    : Array.isArray(json)
+    ? json
+    : [];
+  return { data: rows };
+}
+
+export async function getAgileSectionByKey(
+  key: string
+): Promise<{ data: AgileSection | null }> {
+  const res = await fetch(
+    `${API_URL}/agile-store/sections/${encodeURIComponent(key)}`,
+    {
+      headers: authHeaders({ Accept: "application/json" }),
+      cache: "no-store",
+    }
+  );
+  if (!res.ok) {
+    await parseError(res);
+    throw new Error("Failed to load section");
+  }
+  const json = await res.json().catch(() => ({}));
+  const data = json?.data ?? json ?? null;
+  return { data };
+}
+
+export async function upsertAgileSections(payload: {
+  sections: AgileSection[];
+}) {
+  const res = await fetch(`${API_URL}/agile-store/sections/upsert`, {
+    method: "POST",
+    headers: authHeaders({
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    }),
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    await parseError(res);
+    throw new Error("Failed to save sections");
+  }
+  // Normalisasi respons
+  const json = await res.json().catch(() => ({}));
+  return { success: true, ...(typeof json === "object" ? json : {}) };
+}

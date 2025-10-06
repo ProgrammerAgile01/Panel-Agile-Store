@@ -231,6 +231,11 @@ const DEFAULT_MORE = [
       { id: "roles", label: "Roles & Access", icon: Shield },
       { id: "system-settings", label: "System", icon: Settings },
       {
+        id: "agile-store-settings",
+        label: "Agile Store Settings",
+        icon: Store,
+      },
+      {
         id: "landing-page-settings",
         label: "Landing Page Settings",
         icon: Globe,
