@@ -23,6 +23,8 @@ use App\Http\Controllers\CustomersController;
 use App\Http\Controllers\OrdersController;
 use App\Http\Middleware\PermissionMiddleware;
 use App\Http\Controllers\Catalog\ProductSyncController; 
+use App\Http\Controllers\Store\OfferingMatrixController;
+use App\Http\Middleware\VerifyServiceKey;
 
 
 /*
@@ -132,6 +134,25 @@ Route::middleware(['jwt.auth'])->group(function () {
 Route::get ('/catalog/products',                 [ProductSyncController::class, 'index']);
 Route::get ('/catalog/products/{codeOrId}',      [ProductSyncController::class, 'show']);
 Route::post('/catalog/products/sync',            [ProductSyncController::class, 'sync']); // tombol Import di FE pakai ini
+
+
+
+// Route::prefix('store')
+//   ->middleware(['service.key']) // pakai VerifyServiceKey yang sudah kamu daftarkan
+//   ->group(function () {
+//       // GET /api/store/offerings/{product}/{offering}/matrix
+//       Route::get('/offerings/{product}/{offering}/matrix', [OfferingMatrixController::class, 'matrix']);
+
+//       // (opsional) listing offering di sebuah produk
+//       Route::get('/offerings/{product}', [OfferingMatrixController::class, 'list']);
+//   });
+
+Route::prefix('store')
+    ->middleware([VerifyServiceKey::class]) // <- tanpa alias
+    ->group(function () {
+        Route::get('/offerings/{product}', [OfferingMatrixController::class, 'list']);
+        Route::get('/offerings/{product}/{offering}/matrix', [OfferingMatrixController::class, 'matrix']);
+    });
 
 /* ===================== Public — Frontend Catalog ===================== */
 // Produk katalog dari Panel

@@ -66,5 +66,6 @@ class Kernel extends HttpKernel
         // ===== Kustom (role & permission) =====
         'role' => \App\Http\Middleware\RoleMiddleware::class,
         'permission' => \App\Http\Middleware\PermissionMiddleware::class,
+        'service.key' => \App\Http\Middleware\VerifyServiceKey::class,
     ];
 }
