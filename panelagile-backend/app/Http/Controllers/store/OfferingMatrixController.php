@@ -212,7 +212,7 @@
 //                     'id'           => $pkg->id,
 //                     // 'slug'         => $pkg->slug,        // untuk premium => "premium"
 //                     'name'         => $pkg->name,        // "Premium"
-//                     'product_code' => $pkg->product_code // "TIRTABENING"
+//                     'product_code' => $pkg->product_code // "NATABANYU"
 //                 ],
 //                 'menus'    => $menus,
 //                 'features' => $features,
@@ -226,6 +226,7 @@ namespace App\Http\Controllers\Store;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 class OfferingMatrixController extends Controller
 {
