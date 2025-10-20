@@ -2238,6 +2238,7 @@ export function LandingPageSettings() {
                                             : fallback;
 
                                         setSections((prev) =>
+                                   
                                           prev.map((s) => {
                                             if (s.id !== "pricing") return s;
                                             const arr = Array.isArray(

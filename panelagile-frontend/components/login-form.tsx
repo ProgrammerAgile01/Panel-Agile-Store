@@ -121,9 +121,9 @@ export function LoginForm({ onLogin }: LoginFormProps) {
           </form>
 
           <div className="mt-6 text-center">
-            <p className="text-xs text-muted-foreground">
+            {/* <p className="text-xs text-muted-foreground">
               Demo credentials: admin@agilestore.com / admin123
-            </p>
+            </p> */}
           </div>
         </CardContent>
       </Card>

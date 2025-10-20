@@ -120,7 +120,7 @@ const DEFAULT_MAIN = [
         label: "Product Management",
         icon: Package,
         items: [
-          { id: "products", label: "Products", icon: Package },
+          { id: "products/all", label: "Products", icon: Package },
           { id: "feature-product", label: "Feature Product", icon: Zap },
           { id: "package-product", label: "Package Product", icon: Box },
           { id: "matrix-package", label: "Matrix Package", icon: Grid3X3 },
