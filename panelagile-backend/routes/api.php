@@ -127,6 +127,7 @@ Route::middleware(['jwt.auth'])->group(function () {
     Route::get('/products/{id}', [ProductController::class, 'show']);
     Route::post('/products', [ProductController::class, 'store']);
     Route::put('/products/{id}', [ProductController::class, 'update']);
+    Route::post('/products/{id}', [ProductController::class, 'update']); // for FormData + _method=PUT
     Route::delete('/products/{id}', [ProductController::class, 'destroy']);
     // (optional) kalau mau sync via tombol admin yg login, boleh taruh di sini juga
     // Route::get('/products-sync', [ProductController::class, 'sync']);

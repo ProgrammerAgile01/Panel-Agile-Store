@@ -370,14 +370,65 @@ export async function panelUpdateParentFeaturePrice(
    (Opsional) CRUD Products via JWT (dipakai halaman lain di Panel)
    ====================================================================== */
 
-export async function createProductPanel(payload: {
-  product_code: string;
-  product_name: string;
-  category?: string | null;
-  status?: string | null;
-  description?: string | null;
-  db_name: string;
-}) {
+// export async function createProductPanel(payload: {
+//   product_code: string;
+//   product_name: string;
+//   category?: string | null;
+//   status?: string | null;
+//   description?: string | null;
+//   db_name: string;
+// }) {
+//   const res = await fetch(`${API_URL}/products`, {
+//     method: "POST",
+//     headers: authHeaders({
+//       "Content-Type": "application/json",
+//       Accept: "application/json",
+//     }),
+//     body: JSON.stringify(payload),
+//   });
+//   if (!res.ok) return parseError(res);
+//   return res.json();
+// }
+
+/**
+ * Create product.
+ * Accepts either:
+ *  - plain object (will be sent as JSON), OR
+ *  - FormData (file already appended) OR
+ *  - object with File/Blob values (will be converted to FormData by hasBinary/toFormData)
+ */
+export async function createProductPanel(payload: any) {
+  // If caller already passed FormData -> send directly
+  if (payload instanceof FormData) {
+    const headers = authHeaders({ Accept: "application/json" });
+    // remove Content-Type if present (some authHeaders impl might set it)
+    delete (headers as any)["Content-Type"];
+    const res = await fetch(`${API_URL}/products`, {
+      method: "POST",
+      headers,
+      body: payload,
+      credentials: "include",
+    });
+    if (!res.ok) return parseError(res);
+    return res.json();
+  }
+
+  // If payload contains File/Blob somewhere -> convert to FormData
+  if (hasBinary(payload)) {
+    const fd = toFormData(payload);
+    const headers = authHeaders({ Accept: "application/json" });
+    delete (headers as any)["Content-Type"];
+    const res = await fetch(`${API_URL}/products`, {
+      method: "POST",
+      headers,
+      body: fd,
+      credentials: "include",
+    });
+    if (!res.ok) return parseError(res);
+    return res.json();
+  }
+
+  // Fallback JSON (existing behaviour)
   const res = await fetch(`${API_URL}/products`, {
     method: "POST",
     headers: authHeaders({
@@ -385,21 +436,72 @@ export async function createProductPanel(payload: {
       Accept: "application/json",
     }),
     body: JSON.stringify(payload),
+    credentials: "include",
   });
   if (!res.ok) return parseError(res);
   return res.json();
 }
 
-export async function updateProductPanel(
-  id: string | number,
-  payload: {
-    product_name: string;
-    category?: string | null;
-    status?: string | null;
-    db_name: string | null;
-    description?: string | null;
+// export async function updateProductPanel(
+//   id: string | number,
+//   payload: {
+//     product_name: string;
+//     category?: string | null;
+//     status?: string | null;
+//     db_name: string | null;
+//     description?: string | null;
+//   }
+// ) {
+//   const res = await fetch(`${API_URL}/products/${id}`, {
+//     method: "PUT",
+//     headers: authHeaders({
+//       "Content-Type": "application/json",
+//       Accept: "application/json",
+//     }),
+//     body: JSON.stringify(payload),
+//   });
+//   if (!res.ok) return parseError(res);
+//   return res.json();
+// }
+
+/**
+ * Update product.
+ * Accepts FormData, object-with-binary, or JSON object.
+ * When sending FormData we use POST + _method=PUT (method spoofing) to be compatible with API routes.
+ */
+export async function updateProductPanel(id: string | number, payload: any) {
+  // If payload already FormData -> append _method and send POST
+  if (payload instanceof FormData) {
+    payload.append("_method", "PUT");
+    const headers = authHeaders({ Accept: "application/json" });
+    delete (headers as any)["Content-Type"];
+    const res = await fetch(`${API_URL}/products/${id}`, {
+      method: "POST",
+      headers,
+      body: payload,
+      credentials: "include",
+    });
+    if (!res.ok) return parseError(res);
+    return res.json();
   }
-) {
+
+  // If payload contains File/Blob somewhere -> convert to FormData + _method
+  if (hasBinary(payload)) {
+    const fd = toFormData(payload);
+    fd.append("_method", "PUT");
+    const headers = authHeaders({ Accept: "application/json" });
+    delete (headers as any)["Content-Type"];
+    const res = await fetch(`${API_URL}/products/${id}`, {
+      method: "POST",
+      headers,
+      body: fd,
+      credentials: "include",
+    });
+    if (!res.ok) return parseError(res);
+    return res.json();
+  }
+
+  // JSON path (PUT)
   const res = await fetch(`${API_URL}/products/${id}`, {
     method: "PUT",
     headers: authHeaders({
@@ -407,6 +509,7 @@ export async function updateProductPanel(
       Accept: "application/json",
     }),
     body: JSON.stringify(payload),
+    credentials: "include",
   });
   if (!res.ok) return parseError(res);
   return res.json();

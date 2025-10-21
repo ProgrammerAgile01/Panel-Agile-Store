@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Product;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Storage;
 
 class ProductController extends Controller
 {
@@ -65,9 +66,26 @@ class ProductController extends Controller
             'status'       => 'nullable|string|max:32',
             'description'  => 'nullable|string',
             'db_name'      => ['required','string','max:60','regex:/^[A-Za-z0-9_]+$/'], // <— NEW
+            'image'        => 'nullable|image|max:2048',
         ]);
 
-        $product = Product::create($data);
+        $product = new Product();
+        $product->product_code  = $data['product_code'];
+        $product->product_name  = $data['product_name'];
+        $product->category      = $data['category'] ?? null;
+        $product->status        = $data['status'] ?? 'Active';
+        $product->description   = $data['description'] ?? null;
+        $product->db_name       = $data['db_name'] ?? null;
+
+        // handle image upload
+        if ($request->hasFile('image')) {
+            // simpan di storage/app/public/products/...
+            $path = $request->file('image')->store('products', 'public');
+            $product->image = $path;
+        }
+
+        $product->save();
+        $product->refresh(); // agar accessor muncul
 
         return response()->json(['data' => $product], 201);
     }
@@ -102,9 +120,27 @@ class ProductController extends Controller
             'status'       => 'nullable|string|max:32',
             'description'  => 'nullable|string',
             'db_name'  => 'required|string|max:60',
+            'image'        => 'nullable|image|max:2048',
         ]);
 
-        $product->update($data);
+        $product->product_name = $data['product_name'];
+        $product->category     = $data['category'] ?? $product->category;
+        $product->status       = $data['status'] ?? $product->status;
+        $product->description  = $data['description'] ?? $product->description;
+        $product->db_name      = $data['db_name'] ?? $product->db_name;
+
+        // image handling: jika ada file baru -> simpan dan hapus file lama (opsional)
+        if ($request->hasFile('image')) {
+            // hapus file lama jika ada
+            if ($product->image && Storage::disk('public')->exists($product->image)) {
+                Storage::disk('public')->delete($product->image);
+            }
+            $path = $request->file('image')->store('products', 'public');
+            $product->image = $path;
+        }
+
+        $product->save();
+        $product->refresh();
 
         return response()->json(['data' => $product]);
     }
@@ -115,6 +151,12 @@ class ProductController extends Controller
     public function destroy($id)
     {
         $product = Product::findOrFail($id);
+
+        // optional: hapus file image saat delete
+        if ($product->image && Storage::disk('public')->exists($product->image)) {
+            Storage::disk('public')->delete($product->image);
+        }
+
         $product->delete();
 
         return response()->json(['message' => 'Product deleted']);

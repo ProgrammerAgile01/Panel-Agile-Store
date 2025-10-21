@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\Storage;
 
 class Product extends Model
 {
@@ -18,13 +19,34 @@ class Product extends Model
         'status',
         'description',
         'db_name',
+        'image',
         'total_features',
         'upstream_updated_at',
     ];
 
+    protected $appends = ['image_url'];
+
     protected $casts = [
         'upstream_updated_at' => 'datetime',
     ];
+
+    /**
+     * Kembalikan full/public URL untuk image bila ada.
+     * Storage::url() biasanya menghasilkan '/storage/...'
+     * Jika ingin absolute URL gunakan url(Storage::url(...))
+     */
+    public function getImageUrlAttribute()
+    {
+        if (!$this->image) {
+            return null;
+        }
+
+        // Jika ingin absolute url (recommended) -> uncomment line bawah:
+        // return url(Storage::url($this->image));
+
+        return Storage::url($this->image);
+    }
+
      public function packages()
     {
         return $this->hasMany(ProductPackage::class, 'product_code', 'product_code');
