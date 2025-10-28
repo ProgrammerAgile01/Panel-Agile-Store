@@ -1474,7 +1474,14 @@
 
 "use client";
 
-import { Fragment, useEffect, useMemo, useState, useLayoutEffect } from "react";
+import {
+  Fragment,
+  useEffect,
+  useMemo,
+  useState,
+  useLayoutEffect,
+  useRef,
+} from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -1616,6 +1623,30 @@ export function FeatureProductSplit() {
   );
   const currentData = selectedProduct ? apiData[selectedProduct] : undefined;
 
+  /* ---------- Sticky offsets fix ---------- */
+  const headerRef = useRef<HTMLDivElement>(null);
+  const tabsRef = useRef<HTMLDivElement>(null);
+  const [headerH, setHeaderH] = useState(0);
+  const [tabsH, setTabsH] = useState(0);
+
+  useLayoutEffect(() => {
+    const measure = () => {
+      setHeaderH(headerRef.current?.offsetHeight ?? 0);
+      setTabsH(tabsRef.current?.offsetHeight ?? 0);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    if (headerRef.current) ro.observe(headerRef.current);
+    if (tabsRef.current) ro.observe(tabsRef.current);
+    window.addEventListener("resize", measure);
+    const id = window.setTimeout(measure, 0);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", measure);
+      window.clearTimeout(id);
+    };
+  }, []);
+
   /* --------- Load products from Panel --------- */
   useEffect(() => {
     (async () => {
@@ -1707,7 +1738,6 @@ export function FeatureProductSplit() {
       setBootChecked(true);
       return;
     }
-    // silent fetch
     // eslint-disable-next-line @typescript-eslint/no-floating-promises
     handleLoadAPI(false, false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2184,7 +2214,14 @@ export function FeatureProductSplit() {
   return (
     <div
       className="flex bg-background min-h-0"
-      style={{ height: "calc(100dvh - 4rem)" }}
+      style={
+        {
+          height: "calc(100dvh - 4rem)",
+          // @ts-ignore
+          "--header-h": `${headerH}px`,
+          "--tabs-h": `${tabsH}px`,
+        } as React.CSSProperties
+      }
     >
       {isMobileMenuOpen && (
         <div
@@ -2282,8 +2319,11 @@ export function FeatureProductSplit() {
 
       {/* Content */}
       <div className="flex-1 flex flex-col min-w-0 min-h-0">
-        {/* Sticky header agar tidak menutup konten & selalu di atas */}
-        <div className="p-6 border-b border-border/50 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/70 sticky top-0 z-30">
+        {/* Sticky header (tanpa Alert supaya alert tidak statis di mobile) */}
+        <div
+          ref={headerRef}
+          className="p-6 border-b border-border/50 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/70 sticky top-0 z-30"
+        >
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
               <Button
@@ -2379,8 +2419,15 @@ export function FeatureProductSplit() {
               </Button>
             </div>
           </div>
+        </div>
 
-          <Alert className="mt-4">
+        {/* SCROLL AREA */}
+        <div
+          className="flex-1 min-h-0 overflow-y-auto p-6"
+          style={{ WebkitOverflowScrolling: "touch" }}
+        >
+          {/* ALERT dipindah ke sini agar tidak sticky (tidak “statis”) di mobile */}
+          <Alert className="mb-4">
             <AlertCircle className="h-4 w-4" />
             <AlertDescription className="flex items-center justify-between">
               <span>
@@ -2393,13 +2440,7 @@ export function FeatureProductSplit() {
               </Button>
             </AlertDescription>
           </Alert>
-        </div>
 
-        {/* SCROLL AREA */}
-        <div
-          className="flex-1 min-h-0 overflow-y-auto p-6"
-          style={{ WebkitOverflowScrolling: "touch" }}
-        >
           {bootChecked && !currentData ? (
             <Card className="glass-morphism">
               <CardContent className="p-12 text-center">
@@ -2426,10 +2467,17 @@ export function FeatureProductSplit() {
                 onValueChange={(v) => setActiveTab(v as any)}
                 className="w-full"
               >
-                <TabsList className="grid w-full grid-cols-2 mb-6 sticky top-0 z-20 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/70">
+                {/* Tabs sticky di bawah header */}
+                <TabsList
+                  ref={tabsRef}
+                  className="grid w-full grid-cols-2 mb-0 z-20 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/70"
+                  style={{ top: "var(--header-h)" }}
+                >
                   <TabsTrigger value="menus">Menus</TabsTrigger>
                   <TabsTrigger value="features">Features</TabsTrigger>
                 </TabsList>
+                {/* spacer supaya konten tidak ketutup saat tabs sticky */}
+                <div aria-hidden style={{ height: "var(--tabs-h)" }} />
 
                 {/* MENUS */}
                 <TabsContent value="menus" className="space-y-4">
@@ -2779,7 +2827,6 @@ export function FeatureProductSplit() {
                                     </div>
                                   </div>
 
-                                  {/* bottom row: badges + edit */}
                                   <div className="mt-3 flex items-center gap-2 flex-wrap">
                                     <Badge
                                       variant={
@@ -2810,7 +2857,6 @@ export function FeatureProductSplit() {
                                     )}
                                   </div>
 
-                                  {/* id button */}
                                   <div className="mt-2">
                                     <Button
                                       variant="ghost"
@@ -2828,7 +2874,6 @@ export function FeatureProductSplit() {
                                 </CardContent>
                               </Card>
 
-                              {/* Subfeatures (mobile) */}
                               {feature.children?.map((child) => (
                                 <Card
                                   key={child.id}
@@ -2893,7 +2938,6 @@ export function FeatureProductSplit() {
                             </CardTitle>
                           </CardHeader>
                           <CardContent>
-                            {/* Desktop/tablet */}
                             <div className="hidden md:block overflow-x-auto">
                               <Table className="min-w-[720px]">
                                 <TableHeader>
@@ -3093,7 +3137,6 @@ export function FeatureProductSplit() {
                                     </CardContent>
                                   </Card>
 
-                                  {/* Subfeatures (mobile) */}
                                   {feature.children?.map((child) => (
                                     <Card
                                       key={child.id}

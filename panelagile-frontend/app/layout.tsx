@@ -22,6 +22,14 @@ export const metadata: Metadata = {
   title: "Agile Store - Admin Dashboard",
   description: "Premium admin panel for digital product management",
   generator: "v0.app",
+  icons: {
+    icon: [
+      { url: "/favicon.ico?v=5", sizes: "any" },
+      { url: "/favicon-32x32.png?v=5", type: "image/png", sizes: "32x32" },
+      { url: "/favicon-16x16.png?v=5", type: "image/png", sizes: "16x16" },
+    ],
+    apple: [{ url: "/apple-touch-icon.png?v=5", sizes: "180x180" }],
+  },
 };
 
 export default function RootLayout({

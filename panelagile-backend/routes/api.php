@@ -26,6 +26,7 @@ use App\Http\Controllers\Catalog\ProductSyncController;
 use App\Http\Controllers\Store\OfferingMatrixController;
 use App\Http\Middleware\VerifyServiceKey;
 use App\Http\Controllers\AgileStoreSettingsController;
+use App\Http\Controllers\WhatsappRecipientController;
 
 
 
@@ -295,6 +296,21 @@ Route::get ('/catalog/products/{codeOrId}/features',      [ProductFeatureControl
 Route::post('/catalog/products/{codeOrId}/features/sync', [ProductFeatureController::class, 'syncFeatures']);
 Route::get ('/catalog/products/{codeOrId}/menus',         [ProductFeatureController::class, 'listMenus']);
 Route::post('/catalog/products/{codeOrId}/menus/sync',    [ProductFeatureController::class, 'syncMenus']);
+
+
+/* ========== WHATSAPP SETTINGS ========== */
+
+Route::middleware(['jwt.auth'])->group(function () {
+    Route::get('/whatsapp-recipients', [WhatsappRecipientController::class, 'index']);
+    Route::post('/whatsapp-recipients', [WhatsappRecipientController::class, 'store']);
+    Route::get('/whatsapp-recipients/{id}', [WhatsappRecipientController::class, 'show']);
+    Route::put('/whatsapp-recipients/{id}', [WhatsappRecipientController::class, 'update']);
+    Route::post('/whatsapp-recipients/{id}', [WhatsappRecipientController::class, 'update']); // for FormData + _method=PUT
+    Route::delete('/whatsapp-recipients/{id}', [WhatsappRecipientController::class, 'destroy']);
+
+    // optional stats
+    Route::get('/whatsapp-recipients/stats', [WhatsappRecipientController::class, 'stats']);
+});
 
 /*
 |--------------------------------------------------------------------------

@@ -1620,6 +1620,7 @@
 //   );
 // }
 
+// components/matrix-package-split.tsx
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
@@ -1634,7 +1635,13 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Sheet, SheetContent, SheetHeader } from "@/components/ui/sheet";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
 import { toast } from "@/hooks/use-toast";
 import React from "react";
 import {
@@ -1675,7 +1682,7 @@ import {
   toggleMatrixCellAPI,
 } from "@/lib/api";
 
-// ===== Types (FE internal) =====
+/* ================= Types ================= */
 interface Product {
   id: string;
   name: string;
@@ -1683,26 +1690,23 @@ interface Product {
   status: "active" | "inactive";
   product_code: string;
 }
-
 interface Package {
   id: string | number;
   name: string;
   status: "active" | "inactive";
   description?: string;
 }
-
 interface Feature {
   id: string; // feature: code/id; menu: id
   name: string;
   module: string;
-  moduleGroup?: string; // group utk menus
+  moduleGroup?: string;
   type: "feature" | "menu";
   icon: any;
   description?: string;
   dependencies?: string[];
-  subpath?: string; // khusus menu
+  subpath?: string;
 }
-
 interface MatrixCell {
   enabled: boolean;
   isDraft?: boolean;
@@ -1714,9 +1718,9 @@ type ChangePayload = {
   enabled: boolean;
 };
 
-// ====== Komponen ======
+/* ================= Component ================= */
 export function MatrixPackageSplit() {
-  // ====== STATE DATA ======
+  // ====== DATA ======
   const [products, setProducts] = useState<Product[]>([]);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
 
@@ -1726,20 +1730,20 @@ export function MatrixPackageSplit() {
     Record<string, Record<string, MatrixCell>>
   >({});
 
-  // ====== UI states ======
+  // ====== UI ======
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [viewMode, setViewMode] = useState<"features" | "menus">("features");
-  const [filterMode] = useState("all");
   const [groupByModule, setGroupByModule] = useState(true);
   const [showOnlyDifferences, setShowOnlyDifferences] = useState(false);
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
   const [isSaving, setIsSaving] = useState(false);
-  const [detailDrawerOpen, setDetailDrawerOpen] = useState(false);
-  const [selectedFeature, setSelectedFeature] = useState<Feature | null>(null);
 
   const [previewMode, setPreviewMode] = useState(false);
+  const [previewShowMode, setPreviewShowMode] = useState<
+    "features" | "menus" | "both"
+  >("features");
   const [printOptions, setPrintOptions] = useState({
     orientation: "portrait" as "portrait" | "landscape",
     paper: "A4" as "A4" | "Letter",
@@ -1748,17 +1752,13 @@ export function MatrixPackageSplit() {
     compactRows: false,
   });
 
-  const [previewShowMode, setPreviewShowMode] = useState<
-    "features" | "menus" | "both"
-  >("features");
-
   // ====== Debounce search ======
   useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(searchTerm), 250);
+    const t = setTimeout(() => setDebouncedSearch(searchTerm.trim()), 250);
     return () => clearTimeout(t);
   }, [searchTerm]);
 
-  // ====== Load sidebar products ======
+  // ====== Load products ======
   useEffect(() => {
     (async () => {
       try {
@@ -1782,7 +1782,7 @@ export function MatrixPackageSplit() {
     })();
   }, []);
 
-  // ====== Load matrix + fitur + menu ======
+  // ====== Load matrix by product ======
   useEffect(() => {
     if (!selectedProduct?.product_code) return;
     (async () => {
@@ -1791,7 +1791,6 @@ export function MatrixPackageSplit() {
           selectedProduct.product_code
         );
 
-        // packages
         const pkgs: Package[] = (data.packages || []).map((p: any) => ({
           id: String(p.id),
           name: String(p.name ?? "Package"),
@@ -1803,7 +1802,6 @@ export function MatrixPackageSplit() {
         }));
         setPackages(pkgs);
 
-        // features + menus
         const fts: Feature[] = [
           ...((data.features || []).map((f: any) => ({
             id: String(f.feature_code ?? f.code ?? f.id),
@@ -1813,7 +1811,6 @@ export function MatrixPackageSplit() {
             icon: resolveIcon("feature", f.name),
             description: f.description ?? "",
           })) as Feature[]),
-
           ...((data.menus || []).map((m: any) => ({
             id: String(m.id),
             name: String(m.title ?? m.name ?? "Menu"),
@@ -1829,7 +1826,6 @@ export function MatrixPackageSplit() {
         ];
         setFeaturesAndMenus(fts);
 
-        // matrix map
         const rows: Record<string, MatrixCell> = {};
         (data.matrix || []).forEach((r: any) => {
           const itemId = String(r.item_id);
@@ -1891,9 +1887,6 @@ export function MatrixPackageSplit() {
     return true;
   });
 
-  const filteredPackages = packages; // filterMode tetap "all"
-
-  // Grouping (fitur 1 level, menu 2 level)
   const groupedFeaturesOneLevel = filteredFeatures
     .filter((f) => f.type === "feature")
     .reduce((acc: Record<string, Feature[]>, f) => {
@@ -1921,7 +1914,7 @@ export function MatrixPackageSplit() {
     const res: Record<string, Feature[]> = {};
     Object.entries(base).forEach(([mod, items]) => {
       const kept = items.filter((it) => {
-        const vals = filteredPackages.map((pkg) => {
+        const vals = packages.map((pkg) => {
           const key = `${it.id}-${pkg.id}`;
           return matrixData[pcode]?.[key]?.enabled || false;
         });
@@ -1941,7 +1934,7 @@ export function MatrixPackageSplit() {
     Object.entries(base).forEach(([g, mods]) => {
       Object.entries(mods).forEach(([m, items]) => {
         const kept = items.filter((it) => {
-          const vals = filteredPackages.map((pkg) => {
+          const vals = packages.map((pkg) => {
             const key = `${it.id}-${pkg.id}`;
             return matrixData[pcode]?.[key]?.enabled || false;
           });
@@ -2002,23 +1995,6 @@ export function MatrixPackageSplit() {
       }
     },
     [selectedProduct, matrixData, viewMode]
-  );
-
-  const toggleFeature = useCallback(
-    (featureId: string, packageId: string | number) => {
-      if (!selectedProduct) return;
-      const pcode = selectedProduct.product_code;
-      const key = `${featureId}-${packageId}`;
-      const curr = matrixData[pcode]?.[key]?.enabled ?? false;
-      setMatrixData((prev) => ({
-        ...prev,
-        [pcode]: {
-          ...prev[pcode],
-          [key]: { enabled: !curr, isDraft: true },
-        },
-      }));
-    },
-    [selectedProduct, matrixData]
   );
 
   const toggleEntireColumn = useCallback(
@@ -2082,20 +2058,7 @@ export function MatrixPackageSplit() {
     }
   }, [selectedProduct, matrixData, featuresAndMenus]);
 
-  const checkDependencies = useCallback(
-    (feature: Feature) => {
-      if (!feature.dependencies || !selectedProduct) return true;
-      const pcode = selectedProduct.product_code;
-      return feature.dependencies.every((depId) =>
-        packages.some(
-          (pkg) => matrixData[pcode]?.[`${depId}-${pkg.id}`]?.enabled
-        )
-      );
-    },
-    [selectedProduct, packages, matrixData]
-  );
-
-  // ====== Preview Helpers ======
+  // ====== Preview ======
   const getPreviewItems = useCallback(
     (kind: "features" | "menus") => {
       const base = featuresAndMenus.filter((f) =>
@@ -2118,7 +2081,6 @@ export function MatrixPackageSplit() {
 
   const renderPrintTable = (items: Feature[]) => {
     if (!selectedProduct) return null;
-
     const isMenusTable = items.every((it) => it.type === "menu");
     const leftHeader = isMenusTable ? "Menus" : "Features";
 
@@ -2151,7 +2113,7 @@ export function MatrixPackageSplit() {
             <th className="border border-gray-300 p-3 text-left font-semibold sticky left-0 bg-gray-100 dark:bg-gray-800">
               {leftHeader}
             </th>
-            {filteredPackages.map((pkg) => (
+            {packages.map((pkg) => (
               <th
                 key={String(pkg.id)}
                 className="border border-gray-300 p-3 text-center font-semibold min-w-[120px]"
@@ -2168,7 +2130,7 @@ export function MatrixPackageSplit() {
                 {printOptions.includeGroups && (
                   <tr className="bg-gray-50 dark:bg-gray-700 break-inside-avoid">
                     <td
-                      colSpan={filteredPackages.length + 1}
+                      colSpan={packages.length + 1}
                       className="border border-gray-300 p-2 font-medium"
                     >
                       📁 {groupName}
@@ -2180,7 +2142,7 @@ export function MatrixPackageSplit() {
                     key={item.id}
                     item={item}
                     isMenus={false}
-                    packages={filteredPackages}
+                    packages={packages}
                     matrixData={matrixData[selectedProduct.product_code] || {}}
                     compact={printOptions.compactRows}
                   />
@@ -2194,7 +2156,7 @@ export function MatrixPackageSplit() {
                 {printOptions.includeGroups && (
                   <tr className="bg-gray-50 dark:bg-gray-700 break-inside-avoid">
                     <td
-                      colSpan={filteredPackages.length + 1}
+                      colSpan={packages.length + 1}
                       className="border border-gray-300 p-2 font-medium"
                     >
                       📦 Kelompok: {gName}
@@ -2206,7 +2168,7 @@ export function MatrixPackageSplit() {
                     {printOptions.includeGroups && (
                       <tr className="bg-gray-100 dark:bg-gray-800 break-inside-avoid">
                         <td
-                          colSpan={filteredPackages.length + 1}
+                          colSpan={packages.length + 1}
                           className="border border-gray-300 p-2"
                         >
                           🧩 Modul: {mName}
@@ -2218,7 +2180,7 @@ export function MatrixPackageSplit() {
                         key={item.id}
                         item={item}
                         isMenus={true}
-                        packages={filteredPackages}
+                        packages={packages}
                         matrixData={
                           matrixData[selectedProduct.product_code] || {}
                         }
@@ -2234,35 +2196,10 @@ export function MatrixPackageSplit() {
     );
   };
 
-  const openPreview = () => {
-    if (hasChanges) {
-      if (confirm("You have unsaved changes. Save before preview?")) {
-        saveChanges();
-      }
-    }
-    setPreviewMode(true);
-  };
-  const printToPDF = () => {
-    if (hasChanges) {
-      if (confirm("You have unsaved changes. Save before printing?")) {
-        saveChanges();
-      }
-    }
-    window.print();
-  };
-  const closePreview = () => setPreviewMode(false);
+  const openPreview = () => setPreviewMode(true);
+  const printToPDF = () => window.print();
 
-  // ====== RENDER utama ======
-  if (!selectedProduct) {
-    return (
-      <div className="p-6">
-        <Loader2 className="h-5 w-5 animate-spin inline-block mr-2" />
-        Loading products...
-      </div>
-    );
-  }
-
-  // Sidebar Produk
+  // ====== UI subcomponents ======
   const ProductList = () => (
     <div className="h-screen flex flex-col bg-gradient-to-b from-slate-900 to-slate-800 dark:from-slate-950 dark:to-slate-900 backdrop-blur-xl border-r border-slate-700/50">
       <div className="p-4 border-b border-slate-700/50">
@@ -2286,7 +2223,7 @@ export function MatrixPackageSplit() {
               key={product.id}
               onClick={() => {
                 setSelectedProduct(product);
-                setMobileDrawerOpen(true);
+                setMobileDrawerOpen(false); // penting: tutup sheet saat pilih item (klik jadi berfungsi)
               }}
               className={`w-full h-[72px] flex items-center gap-3 p-3 rounded-xl transition-all duration-300 group ${
                 isSelected
@@ -2343,27 +2280,42 @@ export function MatrixPackageSplit() {
     </div>
   );
 
+  // ====== RENDER ======
+  if (!selectedProduct) {
+    return (
+      <div className="p-6">
+        <Loader2 className="h-5 w-5 animate-spin inline-block mr-2" />
+        Loading products...
+      </div>
+    );
+  }
+
   return (
     <TooltipProvider>
       <div className="h-full flex bg-background">
-        {/* Left Panel */}
+        {/* Left Panel (desktop) */}
         <div className="hidden lg:block w-[260px] flex-shrink-0">
           <ProductList />
         </div>
 
         {/* Right Panel */}
         <div className="flex-1 flex flex-col min-w-0">
-          {/* Header */}
+          {/* Header bar */}
           <div className="flex items-center justify-between p-4 border-b border-primary/20 bg-card/50 backdrop-blur-xl">
             <div className="flex items-center gap-3">
-              <Button
-                variant="ghost"
-                size="sm"
-                className="lg:hidden"
-                onClick={() => setMobileDrawerOpen(true)}
-              >
-                <MenuIcon className="h-4 w-4" />
-              </Button>
+              <Sheet open={mobileDrawerOpen} onOpenChange={setMobileDrawerOpen}>
+                <SheetTrigger asChild>
+                  <Button variant="ghost" size="sm" className="lg:hidden">
+                    <MenuIcon className="h-4 w-4" />
+                  </Button>
+                </SheetTrigger>
+                <SheetContent side="left" className="p-0 w-[85vw] sm:w-[360px]">
+                  <SheetHeader>
+                    <SheetTitle className="sr-only">Products</SheetTitle>
+                  </SheetHeader>
+                  <ProductList />
+                </SheetContent>
+              </Sheet>
               <div className="flex items-center gap-2">
                 <Grid3X3 className="h-5 w-5 text-primary" />
                 <h1 className="text-lg font-semibold">
@@ -2373,13 +2325,13 @@ export function MatrixPackageSplit() {
             </div>
           </div>
 
-          {/* Toolbar (FIX: responsif & tidak keluar jalur) */}
-          <div className="sticky top-0 z-20 border-b border-primary/20 bg-card/30">
-            <div className="p-4">
-              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+          {/* Toolbar (sticky, rapi, responsif) */}
+          <div className="sticky top-0 z-30 border-b border-primary/20 bg-background/90 backdrop-blur supports-[backdrop-filter]:bg-background/70">
+            <div className="p-3 md:p-4">
+              <div className="grid grid-cols-1 gap-3 md:flex md:flex-row md:items-center md:justify-between">
                 {/* Left controls */}
                 <div className="flex flex-wrap items-center gap-3 flex-1 min-w-0">
-                  {/* View Toggle */}
+                  {/* view toggle */}
                   <div className="flex bg-muted rounded-lg p-1 shrink-0">
                     <button
                       className={`px-3 py-1 text-sm rounded-md transition-colors ${
@@ -2403,44 +2355,40 @@ export function MatrixPackageSplit() {
                     </button>
                   </div>
 
-                  {/* Toggles */}
+                  {/* toggles */}
                   <div className="flex items-center gap-4 shrink-0">
-                    <div className="flex items-center gap-2">
+                    <label className="flex items-center gap-2 text-sm whitespace-nowrap">
                       <Switch
                         checked={groupByModule}
                         onCheckedChange={setGroupByModule}
                         id="group-by-module"
                       />
-                      <label htmlFor="group-by-module" className="text-sm">
-                        Group by Module
-                      </label>
-                    </div>
+                      Group by Module
+                    </label>
 
-                    <div className="flex items-center gap-2">
+                    <label className="flex items-center gap-2 text-sm whitespace-nowrap">
                       <Switch
                         checked={showOnlyDifferences}
                         onCheckedChange={setShowOnlyDifferences}
                         id="show-differences"
                       />
-                      <label htmlFor="show-differences" className="text-sm">
-                        Show only differences
-                      </label>
-                    </div>
+                      Show only differences
+                    </label>
                   </div>
 
-                  {/* Search */}
-                  <div className="relative flex-1 min-w-[160px]">
+                  {/* search (desktop: lebar tetap, mobile: full) */}
+                  <div className="relative w-full max-w-full md:w-72 md:flex-none">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
                       placeholder="Search feature/menu..."
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
-                      className="pl-10 w-full md:w-64"
+                      className="pl-10 w-full"
                     />
                   </div>
                 </div>
 
-                {/* Right actions — scrollable row on small screens */}
+                {/* Right actions: scrollable jika sempit */}
                 <div className="w-full md:w-auto overflow-x-auto">
                   <div className="inline-flex items-center gap-2 min-w-max">
                     <Button
@@ -2461,10 +2409,7 @@ export function MatrixPackageSplit() {
 
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button
-                          variant="outline"
-                          className="shrink-0 whitespace-nowrap"
-                        >
+                        <Button variant="outline" className="shrink-0">
                           <Eye className="h-4 w-4 mr-2" />
                           Preview
                           <ChevronDown className="h-4 w-4 ml-2" />
@@ -2516,9 +2461,9 @@ export function MatrixPackageSplit() {
             </div>
           </div>
 
-          {/* Matrix Table / Mobile Cards */}
+          {/* Matrix area */}
           <div className="flex-1 overflow-auto">
-            {filteredPackages.length === 0 ? (
+            {packages.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full p-8">
                 <PackageIcon className="h-16 w-16 text-muted-foreground/50 mb-4" />
                 <h3 className="text-lg font-semibold mb-2">No packages yet</h3>
@@ -2543,7 +2488,7 @@ export function MatrixPackageSplit() {
               </div>
             ) : (
               <>
-                {/* === Desktop/Tablet: TABLE === */}
+                {/* Desktop Table */}
                 <div className="overflow-auto hidden md:block">
                   <table className="w-full border-collapse border border-slate-300 dark:border-slate-700">
                     <thead>
@@ -2569,7 +2514,7 @@ export function MatrixPackageSplit() {
                             Features / Menus
                           </div>
                         </th>
-                        {filteredPackages.map((pkg) => (
+                        {packages.map((pkg) => (
                           <th
                             key={String(pkg.id)}
                             className="border border-slate-300 dark:border-slate-700 p-3 text-center font-semibold min-w-[120px]"
@@ -2619,7 +2564,7 @@ export function MatrixPackageSplit() {
                               {groupByModule && (
                                 <tr className="bg-gray-50 dark:bg-gray-700">
                                   <td
-                                    colSpan={filteredPackages.length + 1}
+                                    colSpan={packages.length + 1}
                                     className="border border-slate-300 dark:border-slate-700 p-2 font-medium text-gray-700 dark:text-gray-300"
                                   >
                                     📁 {module}
@@ -2631,10 +2576,10 @@ export function MatrixPackageSplit() {
                                   feature,
                                   selectedRows,
                                   setSelectedRows,
-                                  filteredPackages,
+                                  packages,
                                   selectedProduct,
                                   matrixData,
-                                  checkDependencies,
+                                  checkDependencies: () => true,
                                   toggleCell,
                                 })
                               )}
@@ -2650,7 +2595,7 @@ export function MatrixPackageSplit() {
                               {groupByModule && (
                                 <tr className="bg-gray-50 dark:bg-gray-700">
                                   <td
-                                    colSpan={filteredPackages.length + 1}
+                                    colSpan={packages.length + 1}
                                     className="border border-slate-300 dark:border-slate-700 p-2 font-medium text-gray-700 dark:text-gray-300"
                                   >
                                     📦 Kelompok: {groupName}
@@ -2663,7 +2608,7 @@ export function MatrixPackageSplit() {
                                     {groupByModule && (
                                       <tr className="bg-gray-100 dark:bg-gray-800">
                                         <td
-                                          colSpan={filteredPackages.length + 1}
+                                          colSpan={packages.length + 1}
                                           className="border border-slate-300 dark:border-slate-700 p-2 text-gray-700 dark:text-gray-300 text-sm font-normal"
                                         >
                                           🧩 Modul: {moduleName}
@@ -2675,10 +2620,10 @@ export function MatrixPackageSplit() {
                                         feature,
                                         selectedRows,
                                         setSelectedRows,
-                                        filteredPackages,
+                                        packages,
                                         selectedProduct,
                                         matrixData,
-                                        checkDependencies,
+                                        checkDependencies: () => true,
                                         toggleCell,
                                       })
                                     )}
@@ -2692,7 +2637,7 @@ export function MatrixPackageSplit() {
                   </table>
                 </div>
 
-                {/* === Mobile: CARD LIST === */}
+                {/* Mobile list */}
                 <div className="md:hidden p-3 space-y-4">
                   <div className="flex items-center gap-2 px-1">
                     <Checkbox
@@ -2726,12 +2671,11 @@ export function MatrixPackageSplit() {
                               <MobileCardRow
                                 key={f.id}
                                 feature={f}
-                                filteredPackages={filteredPackages}
+                                packages={packages}
                                 selectedRows={selectedRows}
                                 setSelectedRows={setSelectedRows}
                                 selectedProduct={selectedProduct}
                                 matrixData={matrixData}
-                                checkDependencies={checkDependencies}
                                 toggleCell={toggleCell}
                               />
                             ))}
@@ -2758,12 +2702,11 @@ export function MatrixPackageSplit() {
                                     <MobileCardRow
                                       key={f.id}
                                       feature={f}
-                                      filteredPackages={filteredPackages}
+                                      packages={packages}
                                       selectedRows={selectedRows}
                                       setSelectedRows={setSelectedRows}
                                       selectedProduct={selectedProduct}
                                       matrixData={matrixData}
-                                      checkDependencies={checkDependencies}
                                       toggleCell={toggleCell}
                                     />
                                   ))}
@@ -2778,36 +2721,156 @@ export function MatrixPackageSplit() {
             )}
           </div>
         </div>
-
-        {/* Detail Drawer */}
-        <Sheet open={detailDrawerOpen} onOpenChange={setDetailDrawerOpen}>
-          <SheetContent className="w-[400px] sm:w-[540px]">
-            <SheetHeader>
-              <div className="flex items-center gap-2">
-                {selectedFeature?.icon && (
-                  <selectedFeature.icon className="h-5 w-5" />
-                )}
-                {selectedFeature?.name}
-              </div>
-              <div className="text-sm text-muted-foreground">
-                {selectedFeature?.moduleGroup
-                  ? `${selectedFeature?.moduleGroup} • `
-                  : ""}
-                {selectedFeature?.module || "General"} • {selectedFeature?.type}
-              </div>
-            </SheetHeader>
-            {/* ... (isi drawer tetap sama) */}
-          </SheetContent>
-        </Sheet>
       </div>
 
-      {/* Preview Modal */}
+      {/* ===== Preview Modal (FULL) ===== */}
       {previewMode && (
-        <div className="fixed inset-0 bg-white dark:bg-slate-900 z-50 overflow-auto">
-          {/* ... (isi preview tetap sama) */}
+        <div className="fixed inset-0 z-[70] bg-background text-foreground overflow-auto">
+          {/* Top bar */}
+          <div className="sticky top-0 z-[71] bg-background/95 backdrop-blur border-b px-4 py-3">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div className="flex items-center gap-2">
+                <Grid3X3 className="h-5 w-5 text-primary" />
+                <h2 className="text-base font-semibold">
+                  Preview — {selectedProduct?.name}
+                </h2>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Show selector */}
+                <div className="flex bg-muted rounded-lg p-1">
+                  <button
+                    className={`px-3 py-1 text-sm rounded-md ${
+                      previewShowMode === "features"
+                        ? "bg-primary text-primary-foreground"
+                        : "hover:bg-muted-foreground/10"
+                    }`}
+                    onClick={() => setPreviewShowMode("features")}
+                  >
+                    Features
+                  </button>
+                  <button
+                    className={`px-3 py-1 text-sm rounded-md ${
+                      previewShowMode === "menus"
+                        ? "bg-primary text-primary-foreground"
+                        : "hover:bg-muted-foreground/10"
+                    }`}
+                    onClick={() => setPreviewShowMode("menus")}
+                  >
+                    Menus
+                  </button>
+                  <button
+                    className={`px-3 py-1 text-sm rounded-md ${
+                      previewShowMode === "both"
+                        ? "bg-primary text-primary-foreground"
+                        : "hover:bg-muted-foreground/10"
+                    }`}
+                    onClick={() => setPreviewShowMode("both")}
+                  >
+                    Both
+                  </button>
+                </div>
+
+                {/* Options */}
+                <label className="flex items-center gap-2 text-sm">
+                  <Switch
+                    checked={printOptions.showLegend}
+                    onCheckedChange={(v) =>
+                      setPrintOptions((s) => ({ ...s, showLegend: !!v }))
+                    }
+                  />
+                  Show legend
+                </label>
+
+                <label className="flex items-center gap-2 text-sm">
+                  <Switch
+                    checked={printOptions.includeGroups}
+                    onCheckedChange={(v) =>
+                      setPrintOptions((s) => ({ ...s, includeGroups: !!v }))
+                    }
+                  />
+                  Include groups
+                </label>
+
+                <label className="flex items-center gap-2 text-sm">
+                  <Switch
+                    checked={printOptions.compactRows}
+                    onCheckedChange={(v) =>
+                      setPrintOptions((s) => ({ ...s, compactRows: !!v }))
+                    }
+                  />
+                  Compact rows
+                </label>
+
+                <select
+                  className="h-8 rounded-md border bg-background px-2 text-sm"
+                  value={printOptions.orientation}
+                  onChange={(e) =>
+                    setPrintOptions((s) => ({
+                      ...s,
+                      orientation: e.target.value as "portrait" | "landscape",
+                    }))
+                  }
+                >
+                  <option value="portrait">Portrait</option>
+                  <option value="landscape">Landscape</option>
+                </select>
+
+                <select
+                  className="h-8 rounded-md border bg-background px-2 text-sm"
+                  value={printOptions.paper}
+                  onChange={(e) =>
+                    setPrintOptions((s) => ({
+                      ...s,
+                      paper: e.target.value as "A4" | "Letter",
+                    }))
+                  }
+                >
+                  <option value="A4">A4</option>
+                  <option value="Letter">Letter</option>
+                </select>
+
+                <Button variant="outline" onClick={() => setPreviewMode(false)}>
+                  Close
+                </Button>
+                <Button onClick={printToPDF}>
+                  <Printer className="h-4 w-4 mr-2" />
+                  Print
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          {/* Content */}
+          <div className="print-content p-4 md:p-6 space-y-8">
+            {printOptions.showLegend && (
+              <div className="text-sm text-muted-foreground">
+                ✅ = enabled, ❌ = disabled
+              </div>
+            )}
+
+            {(previewShowMode === "features" || previewShowMode === "both") && (
+              <div className="space-y-3">
+                <h3 className="text-base font-semibold">Features</h3>
+                <div className="overflow-x-auto rounded-md border">
+                  {renderPrintTable(getPreviewItems("features"))}
+                </div>
+              </div>
+            )}
+
+            {(previewShowMode === "menus" || previewShowMode === "both") && (
+              <div className="space-y-3">
+                <h3 className="text-base font-semibold">Menus</h3>
+                <div className="overflow-x-auto rounded-md border">
+                  {renderPrintTable(getPreviewItems("menus"))}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
+      {/* Print CSS */}
       <style jsx>{`
         @media print {
           body * {
@@ -2833,12 +2896,12 @@ export function MatrixPackageSplit() {
   );
 }
 
-/** ===== Helper row renderer (tabel desktop) ===== */
+/* ===== Row renderers ===== */
 function renderMatrixRow({
   feature,
   selectedRows,
   setSelectedRows,
-  filteredPackages,
+  packages,
   selectedProduct,
   matrixData,
   checkDependencies,
@@ -2847,7 +2910,7 @@ function renderMatrixRow({
   feature: Feature;
   selectedRows: string[];
   setSelectedRows: (v: string[]) => void;
-  filteredPackages: Package[];
+  packages: Package[];
   selectedProduct: Product;
   matrixData: Record<string, Record<string, MatrixCell>>;
   checkDependencies: (f: Feature) => boolean;
@@ -2913,7 +2976,7 @@ function renderMatrixRow({
         </div>
       </td>
 
-      {filteredPackages.map((pkg) => {
+      {packages.map((pkg) => {
         const key = `${feature.id}-${pkg.id}`;
         const cell = matrixData[selectedProduct.product_code]?.[key];
         const isEnabled = cell?.enabled || false;
@@ -2947,29 +3010,25 @@ function renderMatrixRow({
   );
 }
 
-/** ===== Mobile Card Row ===== */
 function MobileCardRow({
   feature,
-  filteredPackages,
+  packages,
   selectedRows,
   setSelectedRows,
   selectedProduct,
   matrixData,
-  checkDependencies,
   toggleCell,
 }: {
   feature: Feature;
-  filteredPackages: Package[];
+  packages: Package[];
   selectedRows: string[];
   setSelectedRows: (v: string[]) => void;
   selectedProduct: Product;
   matrixData: Record<string, Record<string, MatrixCell>>;
-  checkDependencies: (f: Feature) => boolean;
   toggleCell: (featureId: string, packageId: string | number) => void;
 }) {
   const IconComponent = feature.icon || PackageIcon;
   const isSelected = selectedRows.includes(feature.id);
-  const hasDependencyIssues = !checkDependencies(feature);
 
   return (
     <div className="border rounded-lg p-4 bg-card/50 hover:bg-muted/20 transition-colors">
@@ -3004,15 +3063,10 @@ function MobileCardRow({
             <Badge variant="outline" className="text-xs">
               {feature.type}
             </Badge>
-            {hasDependencyIssues && (
-              <Badge variant="destructive" className="text-xs">
-                Dependency
-              </Badge>
-            )}
           </div>
 
           <div className="mt-3 space-y-2">
-            {filteredPackages.map((pkg) => {
+            {packages.map((pkg) => {
               const key = `${feature.id}-${pkg.id}`;
               const cell = matrixData[selectedProduct.product_code]?.[key];
               const isEnabled = cell?.enabled || false;
@@ -3062,7 +3116,6 @@ function MobileCardRow({
   );
 }
 
-/** ===== Row for Print Table ===== */
 function PrintRow({
   item,
   isMenus,
@@ -3108,7 +3161,6 @@ function PrintRow({
           </div>
         </div>
       </td>
-
       {packages.map((pkg) => {
         const enabled = matrixData[`${item.id}-${pkg.id}`]?.enabled || false;
         return (

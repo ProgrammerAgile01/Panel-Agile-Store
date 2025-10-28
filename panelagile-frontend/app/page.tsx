@@ -21,6 +21,7 @@ import { MatrixLevel } from "@/components/matrix-level";
 import { DataUser } from "@/components/data-user";
 import { LandingPageSettings } from "@/components/landing-page-settings";
 import { AgileStoreSettings } from "@/components/agile-store-settings";
+import { WhatsAppSettings } from "@/components/whatsapp-settings";
 
 // API helpers
 import { login as apiLogin, me as apiMe, logout as apiLogout } from "@/lib/api";
@@ -132,6 +133,8 @@ export default function AdminDashboard() {
         return <AgileStoreSettings />;
       case "landing-page-settings":
         return <LandingPageSettings />;
+      case "whatsapp-settings":
+        return <WhatsAppSettings />;
       default:
         return <DashboardOverview />;
     }

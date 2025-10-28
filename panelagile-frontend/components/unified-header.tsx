@@ -214,11 +214,6 @@ const DEFAULT_MORE = [
       { id: "payment-gateways", label: "Payment Gateways", icon: CreditCard },
       { id: "whatsapp-email", label: "WhatsApp/Email", icon: MessageSquare },
       { id: "api-keys", label: "API Keys", icon: Key },
-      {
-        id: "landing-page-settings",
-        label: "Landing Page Settings",
-        icon: Globe,
-      },
     ],
     accordion: true,
   },
@@ -229,7 +224,12 @@ const DEFAULT_MORE = [
     items: [
       { id: "settings", label: "Store Settings", icon: Store },
       { id: "roles", label: "Roles & Access", icon: Shield },
-      { id: "system-settings", label: "System", icon: Settings },
+      // { id: "system-settings", label: "System", icon: Settings },
+      {
+        id: "whatsapp-settings",
+        label: "WhatsApp Settings",
+        icon: MessageSquare,
+      },
       {
         id: "agile-store-settings",
         label: "Agile Store Settings",
