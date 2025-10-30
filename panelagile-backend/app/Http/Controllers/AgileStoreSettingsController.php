@@ -10,10 +10,7 @@ use Illuminate\Validation\Rule;
 
 class AgileStoreSettingsController extends Controller
 {
-    /**
-     * GET /api/agile-store/sections
-     * Ambil semua section + items.
-     */
+    /** GET /api/agile-store/sections */
     public function index()
     {
         $sections = AgileStoreSection::with([
@@ -25,9 +22,7 @@ class AgileStoreSettingsController extends Controller
         return response()->json(['data' => $sections]);
     }
 
-    /**
-     * GET /api/agile-store/sections/{key}
-     */
+    /** GET /api/agile-store/sections/{key} */
     public function show($key)
     {
         $section = AgileStoreSection::with(['items.product','items.package','items.duration'])
@@ -38,8 +33,10 @@ class AgileStoreSettingsController extends Controller
 
     /**
      * POST /api/agile-store/sections/upsert
-     * Payload mengikuti state frontend: { sections: [...] }
-     * Items pada FE tidak punya type → kita infer dari key section.
+     * Payload mengikuti state FE: { sections: [...] }
+     * Sekarang mendukung bilingual:
+     *  - Section: content (ID) & content_en (EN)
+     *  - Items:   title/subtitle/description/cta_label (ID) & *_en (EN)
      */
     public function upsert(Request $request)
     {
@@ -53,22 +50,35 @@ class AgileStoreSettingsController extends Controller
             'sections.*.enabled'  => ['required','boolean'],
             'sections.*.order'    => ['required','integer'],
             'sections.*.theme'    => ['nullable','array'],
-            'sections.*.content'  => ['nullable','array'],
 
-            // optional items (array bebas, controller akan map field)
+            // bilingual content
+            'sections.*.content'     => ['nullable','array'], // ID (lokal)
+            'sections.*.content_en'  => ['nullable','array'], // EN (dasar)
+
+            // items bilingual
             'sections.*.items'    => ['nullable','array'],
             'sections.*.items.*.id'            => ['nullable','integer'],
+            // ID (lokal)
             'sections.*.items.*.title'         => ['nullable','string'],
             'sections.*.items.*.subtitle'      => ['nullable','string'],
             'sections.*.items.*.description'   => ['nullable','string'],
             'sections.*.items.*.cta_label'     => ['nullable','string'],
+            // EN (dasar)
+            'sections.*.items.*.title_en'       => ['nullable','string'],
+            'sections.*.items.*.subtitle_en'    => ['nullable','string'],
+            'sections.*.items.*.description_en' => ['nullable','string'],
+            'sections.*.items.*.cta_label_en'   => ['nullable','string'],
+
             'sections.*.items.*.order'         => ['nullable','integer'],
             'sections.*.items.*.product_code'  => ['nullable','string'],
             'sections.*.items.*.package_id'    => ['nullable','integer'],
             'sections.*.items.*.duration_id'   => ['nullable','integer'],
             'sections.*.items.*.price_monthly' => ['nullable','numeric'],
             'sections.*.items.*.price_yearly'  => ['nullable','numeric'],
+
+            // extras (ID & EN)
             'sections.*.items.*.extras'        => ['nullable','array'],
+            'sections.*.items.*.extras_en'     => ['nullable','array'],
         ]);
 
         $inferType = function(string $sectionKey) {
@@ -78,8 +88,8 @@ class AgileStoreSettingsController extends Controller
                 'testimonials' => 'testimonial',
                 'why'          => 'feature',
                 'how'          => 'step',
-                'footer'       => 'link',   // link/quicklink dll
-                default        => 'content',// hero/about/contact/cta dsb jika punya items
+                'footer'       => 'link',
+                default        => 'content',
             };
         };
 
@@ -87,12 +97,15 @@ class AgileStoreSettingsController extends Controller
             foreach ($payload['sections'] as $sec) {
                 /** @var AgileStoreSection $section */
                 $section = AgileStoreSection::firstOrNew(['key' => $sec['key']]);
+
+                // isi bilingual untuk section
                 $section->fill([
-                    'name'    => $sec['name'],
-                    'enabled' => $sec['enabled'],
-                    'order'   => $sec['order'],
-                    'theme'   => $sec['theme']   ?? null,
-                    'content' => $sec['content'] ?? null,
+                    'name'       => $sec['name'],
+                    'enabled'    => $sec['enabled'],
+                    'order'      => $sec['order'],
+                    'theme'      => $sec['theme']      ?? null,
+                    'content'    => $sec['content']    ?? null, // ID (lokal)
+                    'content_en' => $sec['content_en'] ?? null, // EN (dasar)
                 ]);
                 $section->save();
 
@@ -106,10 +119,19 @@ class AgileStoreSettingsController extends Controller
 
                         $item->section_id   = $section->id;
                         $item->item_type    = $raw['item_type'] ?? $inferType($sec['key']);
+
+                        // ===== Isi bilingual untuk item =====
+                        // ID (lokal)
                         $item->title        = $raw['title']        ?? ($raw['name'] ?? null);
                         $item->subtitle     = $raw['subtitle']     ?? null;
                         $item->description  = $raw['description']  ?? null;
                         $item->cta_label    = $raw['cta_label']    ?? ($raw['cta'] ?? null);
+                        // EN (dasar)
+                        $item->title_en        = $raw['title_en']        ?? ($raw['name_en'] ?? null);
+                        $item->subtitle_en     = $raw['subtitle_en']     ?? null;
+                        $item->description_en  = $raw['description_en']  ?? null;
+                        $item->cta_label_en    = $raw['cta_label_en']    ?? ($raw['cta_en'] ?? null);
+
                         $item->order        = $raw['order']        ?? 1;
 
                         // domain refs
@@ -121,26 +143,40 @@ class AgileStoreSettingsController extends Controller
                         $item->price_monthly = $raw['price_monthly'] ?? (data_get($raw, 'price.monthly'));
                         $item->price_yearly  = $raw['price_yearly']  ?? (data_get($raw, 'price.yearly'));
 
-                        // extras:
-                        // - testimonials: { person_name, person_role }
-                        // - pricing.features: array of string
-                        // - footer.link: { href, label }
-                        // - products: { custom_name, custom_description }
-                        $extras = $raw['extras'] ?? [];
-                        // Map khusus dari payload UI lama:
+                        // ===== extras bilingual =====
+                        $extrasId = $raw['extras'] ?? [];
+                        $extrasEn = $raw['extras_en'] ?? [];
+
+                        // Map khusus dari payload UI lama (ID)
                         if (isset($raw['name']) && $item->item_type === 'product') {
-                            $extras['custom_name'] = $raw['name'];
+                            $extrasId['custom_name'] = $raw['name'];
                         }
                         if (isset($raw['quote']) && $item->item_type === 'testimonial') {
-                            $extras['quote'] = $raw['quote'];
+                            $extrasId['quote'] = $raw['quote'];
                         }
                         if (isset($raw['role']) && $item->item_type === 'testimonial') {
-                            $extras['person_role'] = $raw['role'];
+                            $extrasId['person_role'] = $raw['role'];
                         }
                         if (isset($raw['features']) && $item->item_type === 'pricing' && is_array($raw['features'])) {
-                            $extras['features'] = $raw['features'];
+                            $extrasId['features'] = $raw['features'];
                         }
-                        $item->extras = $extras ?: null;
+
+                        // Map khusus (EN)
+                        if (isset($raw['name_en']) && $item->item_type === 'product') {
+                            $extrasEn['custom_name'] = $raw['name_en'];
+                        }
+                        if (isset($raw['quote_en']) && $item->item_type === 'testimonial') {
+                            $extrasEn['quote'] = $raw['quote_en'];
+                        }
+                        if (isset($raw['role_en']) && $item->item_type === 'testimonial') {
+                            $extrasEn['person_role'] = $raw['role_en'];
+                        }
+                        if (isset($raw['features_en']) && $item->item_type === 'pricing' && is_array($raw['features_en'])) {
+                            $extrasEn['features'] = $raw['features_en'];
+                        }
+
+                        $item->extras    = $extrasId ?: null; // lokal/ID
+                        $item->extras_en = $extrasEn ?: null; // EN
 
                         $item->save();
                         $keepIds[] = $item->id;

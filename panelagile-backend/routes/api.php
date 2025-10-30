@@ -27,6 +27,7 @@ use App\Http\Controllers\Store\OfferingMatrixController;
 use App\Http\Middleware\VerifyServiceKey;
 use App\Http\Controllers\AgileStoreSettingsController;
 use App\Http\Controllers\WhatsappRecipientController;
+use App\Http\Controllers\TranslateBatchController;
 
 
 
@@ -252,6 +253,10 @@ Route::prefix('agile-store')->group(function () {
     Route::get('/sections/{key}',  [AgileStoreSettingsController::class, 'show'])->whereAlphaNumeric('key');
     Route::post('/sections/upsert',[AgileStoreSettingsController::class, 'upsert']);
 });
+
+
+
+Route::post('/translate-batch', [TranslateBatchController::class, 'translate']);
 
 
 // ==================== Customer dan Order ====================

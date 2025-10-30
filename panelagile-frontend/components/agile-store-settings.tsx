@@ -18,6 +18,8 @@ import {
   Smartphone,
   ArrowUp,
   ArrowDown,
+  Languages,
+  Wand2,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -34,7 +36,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-// ===== API yang dipakai
+// ===== API yang dipakai (tanpa perubahan nama fungsi)
 import {
   getAgileSections,
   upsertAgileSections,
@@ -46,6 +48,11 @@ import {
   panelListFeaturesByProduct,
   getPricelistByProduct,
 } from "@/lib/api";
+// imports di paling atas
+import { translateBatch } from "@/lib/translate-batch";
+import { extractStringLeaves, applyStringLeaves } from "@/lib/i18n/flatten";
+import { shouldSkipPath, shouldSkipValue } from "@/lib/i18n/glossary";
+import { translateObjectStrings } from "@/lib/translate-object";
 
 /* ==================== Types ==================== */
 type ThemeState = {
@@ -58,6 +65,7 @@ type ThemeState = {
 type Step = { title: string; description: string };
 type Testimonial = { quote: string; name: string; role: string };
 type Device = "desktop" | "tablet" | "mobile";
+type Lang = "en" | "id";
 
 type StoreSection = {
   id?: number;
@@ -75,8 +83,12 @@ type StoreSection = {
   name: string;
   enabled: boolean;
   order: number;
+  /** Versi Indonesia (lama) */
   content: any;
+  /** Versi Inggris (baru, basis) */
+  content_en?: any;
   theme?: ThemeState;
+  items?: any;
 };
 
 /* ==================== Const ==================== */
@@ -101,262 +113,280 @@ const pickTheme = (t?: ThemeState): ThemeState => ({
   foreground: t?.foreground ?? DEFAULT_THEME.foreground,
 });
 
-const seedSections = (): StoreSection[] => [
-  {
-    key: "hero",
-    name: "Hero",
-    enabled: true,
-    order: 1,
-    theme: { ...DEFAULT_THEME },
-    content: {
-      title: "Digital Products to Grow Your Business, Faster.",
-      subtitle:
-        "Agile Store provides powerful and affordable digital apps for your business and community. Scale faster with our proven solutions.",
-      primaryCta: "Explore Products",
-      secondaryCta: "Start Free",
-      imageUrl: "",
+/** ===== Seed EN (basis) & ID (copy awal agar UI tidak kosong) ===== */
+const seedSections = (): StoreSection[] => {
+  const SEED_EN: StoreSection[] = [
+    {
+      key: "hero",
+      name: "Hero",
+      enabled: true,
+      order: 1,
+      theme: { ...DEFAULT_THEME },
+      content: {}, // ID will be generated from EN (first mount)
+      content_en: {
+        title: "Digital Products to Grow Your Business, Faster.",
+        subtitle:
+          "Agile Store provides powerful and affordable digital apps for your business and community. Scale faster with our proven solutions.",
+        primaryCta: "Explore Products",
+        secondaryCta: "Start Free",
+        imageUrl: "",
+      },
     },
-  },
-  {
-    key: "why",
-    name: "Why Agile Store",
-    enabled: true,
-    order: 2,
-    theme: { ...DEFAULT_THEME },
-    content: {
-      title: "Why Agile Store",
-      items: [
-        {
-          title: "Easy Setup",
-          description: "Get started in minutes with guided onboarding.",
-        },
-        {
-          title: "Affordable Pricing",
-          description: "Transparent pricing with no hidden fees.",
-        },
-        {
-          title: "Scalable Solutions",
-          description: "Grow from startup to enterprise.",
-        },
-        {
-          title: "24/7 Support",
-          description: "Dedicated support whenever you need it.",
-        },
-      ],
+    {
+      key: "why",
+      name: "Why Agile Store",
+      enabled: true,
+      order: 2,
+      theme: { ...DEFAULT_THEME },
+      content: {},
+      content_en: {
+        title: "Why Agile Store",
+        items: [
+          {
+            title: "Easy Setup",
+            description: "Get started in minutes with guided onboarding.",
+          },
+          {
+            title: "Affordable Pricing",
+            description: "Transparent pricing with no hidden fees.",
+          },
+          {
+            title: "Scalable Solutions",
+            description: "Grow from startup to enterprise.",
+          },
+          {
+            title: "24/7 Support",
+            description: "Dedicated support whenever you need it.",
+          },
+        ],
+      },
     },
-  },
-  {
-    key: "how",
-    name: "How It Works",
-    enabled: true,
-    order: 3,
-    theme: { ...DEFAULT_THEME },
-    content: {
-      title: "How It Works",
-      subtitle:
-        "Get started in three simple steps and transform your business today.",
-      steps: [
-        {
-          title: "Choose your product",
-          description: "Browse our collection and find the perfect solution.",
-        },
-        {
-          title: "Select a package",
-          description: "Pick the plan that fits your requirements and budget.",
-        },
-        {
-          title: "Start using instantly",
-          description: "Immediate access with quick setup.",
-        },
-      ],
+    {
+      key: "how",
+      name: "How It Works",
+      enabled: true,
+      order: 3,
+      theme: { ...DEFAULT_THEME },
+      content: {},
+      content_en: {
+        title: "How It Works",
+        subtitle:
+          "Get started in three simple steps and transform your business today.",
+        steps: [
+          {
+            title: "Choose your product",
+            description: "Browse our collection and find the perfect solution.",
+          },
+          {
+            title: "Select a package",
+            description:
+              "Pick the plan that fits your requirements and budget.",
+          },
+          {
+            title: "Start using instantly",
+            description: "Immediate access with quick setup.",
+          },
+        ],
+      },
     },
-  },
-  {
-    key: "products",
-    name: "Our Products",
-    enabled: true,
-    order: 4,
-    theme: { ...DEFAULT_THEME },
-    content: {
-      title: "Our Products",
-      subtitle: "Powerful digital solutions to streamline your operations.",
-      items: [
-        {
-          name: "Rent Vix Pro",
-          description: "Complete rental management solution",
-          cta: "View Product",
-          product_code: "",
-        },
-        {
-          name: "Absen Fast",
-          description: "Smart attendance system",
-          cta: "View Product",
-          product_code: "",
-        },
-        {
-          name: "Ayo Hidupkan Rumah Ibadah",
-          description: "Donation & activity management",
-          cta: "View Product",
-          product_code: "",
-        },
-        {
-          name: "Salesman Apps",
-          description: "Mobile CRM for sales teams",
-          cta: "View Product",
-          product_code: "",
-        },
-      ],
+    {
+      key: "products",
+      name: "Our Products",
+      enabled: true,
+      order: 4,
+      theme: { ...DEFAULT_THEME },
+      content: {},
+      content_en: {
+        title: "Our Products",
+        subtitle: "Powerful digital solutions to streamline your operations.",
+        items: [
+          {
+            name: "Rent Vix Pro",
+            description: "Complete rental management solution",
+            cta: "View Product",
+            product_code: "",
+          },
+          {
+            name: "Absen Fast",
+            description: "Smart attendance system",
+            cta: "View Product",
+            product_code: "",
+          },
+          {
+            name: "Ayo Hidupkan Rumah Ibadah",
+            description: "Donation & activity management",
+            cta: "View Product",
+            product_code: "",
+          },
+          {
+            name: "Salesman Apps",
+            description: "Mobile CRM for sales teams",
+            cta: "View Product",
+            product_code: "",
+          },
+        ],
+      },
     },
-  },
-  {
-    key: "pricing",
-    name: "Pricing",
-    enabled: true,
-    order: 5,
-    theme: { ...DEFAULT_THEME },
-    content: {
-      refProductCode: "",
-      title: "Simple Pricing for Everyone",
-      subtitle:
-        "Pick the perfect plan. All include our core features with no hidden fees.",
-      plans: [
-        {
-          name: "Basic",
-          price: { monthly: 0, yearly: 0 },
-          features: [],
-          cta: "Start Now",
-          package_id: null,
-          duration_id: null,
-        },
-        {
-          name: "Premium",
-          price: { monthly: 0, yearly: 0 },
-          features: [],
-          cta: "Start Now",
-          package_id: null,
-          duration_id: null,
-        },
-        {
-          name: "Professional",
-          price: { monthly: 0, yearly: 0 },
-          features: [],
-          cta: "Start Now",
-          package_id: null,
-          duration_id: null,
-        },
-      ],
+    {
+      key: "pricing",
+      name: "Pricing",
+      enabled: true,
+      order: 5,
+      theme: { ...DEFAULT_THEME },
+      content: {},
+      content_en: {
+        refProductCode: "",
+        title: "Simple Pricing for Everyone",
+        subtitle:
+          "Pick the perfect plan. All include our core features with no hidden fees.",
+        plans: [
+          {
+            name: "Basic",
+            price: { monthly: 0, yearly: 0 },
+            features: [],
+            cta: "Start Now",
+            package_id: null,
+            duration_id: null,
+          },
+          {
+            name: "Premium",
+            price: { monthly: 0, yearly: 0 },
+            features: [],
+            cta: "Start Now",
+            package_id: null,
+            duration_id: null,
+          },
+          {
+            name: "Professional",
+            price: { monthly: 0, yearly: 0 },
+            features: [],
+            cta: "Start Now",
+            package_id: null,
+            duration_id: null,
+          },
+        ],
+      },
     },
-  },
-  {
-    key: "cta",
-    name: "CTA Banner",
-    enabled: true,
-    order: 6,
-    theme: { ...DEFAULT_THEME },
-    content: {
-      title: "Ready to boost your business with Agile Store?",
-      subtitle: "Join thousands already growing with our digital solutions.",
-      primary: "Get Started Today",
-      secondary: "Talk to Sales",
-      bullets: ["No setup fees", "Cancel anytime", "24/7 support"],
+    {
+      key: "cta",
+      name: "CTA Banner",
+      enabled: true,
+      order: 6,
+      theme: { ...DEFAULT_THEME },
+      content: {},
+      content_en: {
+        title: "Ready to boost your business with Agile Store?",
+        subtitle: "Join thousands already growing with our digital solutions.",
+        primary: "Get Started Today",
+        secondary: "Talk to Sales",
+        bullets: ["No setup fees", "Cancel anytime", "24/7 support"],
+      },
     },
-  },
-  {
-    key: "testimonials",
-    name: "Testimonials",
-    enabled: true,
-    order: 7,
-    theme: { ...DEFAULT_THEME },
-    content: {
-      title: "Trusted by 100+ businesses and organizations",
-      items: [
-        {
-          quote: "Agile Store transformed our rental business completely.",
-          name: "Sarah Johnson",
-          role: "Business Owner",
-        },
-        {
-          quote: "Perfect solution for managing our activities.",
-          name: "Ahmad Rahman",
-          role: "Community Leader",
-        },
-        {
-          quote: "Our team productivity increased by 60%.",
-          name: "Lisa Chen",
-          role: "Sales Manager",
-        },
-      ],
+    {
+      key: "testimonials",
+      name: "Testimonials",
+      enabled: true,
+      order: 7,
+      theme: { ...DEFAULT_THEME },
+      content: {},
+      content_en: {
+        title: "Trusted by 100+ businesses and organizations",
+        items: [
+          {
+            quote: "Agile Store transformed our rental business completely.",
+            name: "Sarah Johnson",
+            role: "Business Owner",
+          },
+          {
+            quote: "Perfect solution for managing our activities.",
+            name: "Ahmad Rahman",
+            role: "Community Leader",
+          },
+          {
+            quote: "Our team productivity increased by 60%.",
+            name: "Lisa Chen",
+            role: "Sales Manager",
+          },
+        ],
+      },
     },
-  },
-  {
-    key: "footer",
-    name: "Footer",
-    enabled: true,
-    order: 8,
-    theme: { ...DEFAULT_THEME },
-    content: {
-      brand: "Agile Store",
-      description:
-        "Transform your workflow with professional e-commerce solutions designed for agile teams and modern businesses.",
-      quickLinks: ["Products", "Pricing", "About", "Contact", "Support"],
-      contact: {
+    {
+      key: "footer",
+      name: "Footer",
+      enabled: true,
+      order: 8,
+      theme: { ...DEFAULT_THEME },
+      content: {},
+      content_en: {
+        brand: "Agile Store",
+        description:
+          "Transform your workflow with professional e-commerce solutions designed for agile teams and modern businesses.",
+        quickLinks: ["Products", "Pricing", "About", "Contact", "Support"],
+        contact: {
+          email: "hello@agilestore.com",
+          phone: "+1 (555) 123-4567",
+          address: "San Francisco, CA",
+        },
+        newsletterLabel: "Enter your email",
+      },
+    },
+    {
+      key: "about",
+      name: "About Page",
+      enabled: true,
+      order: 9,
+      theme: { ...DEFAULT_THEME },
+      content: {},
+      content_en: {
+        headline: "All-in-One SaaS Marketplace",
+        subheadline:
+          "Discover powerful solutions designed to streamline your business operations and boost productivity.",
+        featuresHeadline: "Why Agile Store",
+        features: [
+          "Easy Setup",
+          "Affordable Pricing",
+          "Scalable Solutions",
+          "24/7 Support",
+        ],
+        steps: [
+          {
+            title: "Choose your product",
+            description: "Browse our collection and find the perfect solution.",
+          },
+          {
+            title: "Select a package",
+            description: "Pick the plan that fits your needs and budget.",
+          },
+          {
+            title: "Start using instantly",
+            description: "Get access immediately with quick setup.",
+          },
+        ],
+        testimonialsHeadline: "Trusted by 100+ businesses and organizations",
+      },
+    },
+    {
+      key: "contact",
+      name: "Contact Page",
+      enabled: true,
+      order: 10,
+      theme: { ...DEFAULT_THEME },
+      content: {},
+      content_en: {
+        headline: "Get in touch",
+        subheadline:
+          "We’d love to hear from you. Reach out to our team anytime.",
         email: "hello@agilestore.com",
         phone: "+1 (555) 123-4567",
         address: "San Francisco, CA",
+        ctaLabel: "Send Message",
       },
-      newsletterLabel: "Enter your email",
     },
-  },
-  {
-    key: "about",
-    name: "About Page",
-    enabled: true,
-    order: 9,
-    theme: { ...DEFAULT_THEME },
-    content: {
-      headline: "All-in-One SaaS Marketplace",
-      subheadline:
-        "Discover powerful solutions designed to streamline your business operations and boost productivity.",
-      featuresHeadline: "Why Agile Store",
-      features: [
-        "Easy Setup",
-        "Affordable Pricing",
-        "Scalable Solutions",
-        "24/7 Support",
-      ],
-      steps: [
-        {
-          title: "Choose your product",
-          description: "Browse our collection and find the perfect solution.",
-        },
-        {
-          title: "Select a package",
-          description: "Pick the plan that fits your needs and budget.",
-        },
-        {
-          title: "Start using instantly",
-          description: "Get access immediately with quick setup.",
-        },
-      ],
-      testimonialsHeadline: "Trusted by 100+ businesses and organizations",
-    },
-  },
-  {
-    key: "contact",
-    name: "Contact Page",
-    enabled: true,
-    order: 10,
-    theme: { ...DEFAULT_THEME },
-    content: {
-      headline: "Get in touch",
-      subheadline: "We’d love to hear from you. Reach out to our team anytime.",
-      email: "hello@agilestore.com",
-      phone: "+1 (555) 123-4567",
-      address: "San Francisco, CA",
-      ctaLabel: "Send Message",
-    },
-  },
-];
+  ];
+
+  // Inisialisasi ID = EN (agar UI ID tidak kosong saat awal)
+  return SEED_EN.map((s) => ({ ...s, content: structuredClone(s.content_en) }));
+};
 
 const makeSafeSection = (
   partial: Partial<StoreSection> & { key: StoreSection["key"] }
@@ -367,17 +397,110 @@ const makeSafeSection = (
   enabled: partial.enabled ?? true,
   order: partial.order ?? 1,
   theme: { ...DEFAULT_THEME, ...(partial.theme ?? {}) },
-  content: partial.content ?? {},
+  content_en: partial.content_en ?? {},
+  content: partial.content ?? structuredClone(partial.content_en ?? {}),
 });
+
+/* ==================== Translator (pluggable) ==================== */
+/** Ganti implementasi ini ke translateBatch/endpoint Anda jika tersedia */
+async function translateENtoID(payload: any): Promise<any> {
+  // Fallback: hanya copy biar tidak error (silakan sambungkan mesin terjemah Anda)
+  return structuredClone(payload);
+}
+async function translateObjectENtoID(enObj: any) {
+  return translateContentObject(enObj);
+}
+
+/** Util mendalam untuk men-translate seluruh object JSON */
+// ===== Translator (pluggable) =====
+async function translateContentObject(enObj: any): Promise<any> {
+  // Lewati key non-teks (warna/ikon/kode dsb.)
+  const skipKeys = (path: string[]) => {
+    const key = (path[path.length - 1] || "").toLowerCase();
+    return [
+      "primary",
+      "secondary",
+      "accent",
+      "background",
+      "foreground",
+      "color",
+      "icon",
+      "product_code",
+      "refproductcode", // pricing
+      "price", // objek angka
+      "price_monthly",
+      "price_yearly",
+      "_auto_from_month_id",
+      "_auto_from_year_id",
+      "package_id",
+      "duration_id",
+      "months",
+      "email",
+      "phone",
+      "address", // contact/footer
+      "imageurl",
+    ].includes(key);
+  };
+
+  // translate semua leaf-string dari EN -> ID
+  return translateObjectStrings(enObj, {
+    from: "en",
+    to: "id",
+    includeEmpty: false,
+    skipKeys,
+    // skipValue default sudah menghindari URL, hex color, email/telepon, token pendek, dll.
+    onProgress: () => {}, // optional: tampilkan progress bar kalau mau
+  });
+}
+
+async function translateItemENtoID(item: any) {
+  // Kalau item punya versi _en terpisah, tetap dukung:
+  const fields = [
+    "title",
+    "subtitle",
+    "description",
+    "cta",
+    "cta_label",
+  ] as const;
+
+  // Kumpulkan EN dari field _en jika ada; kalau tidak, ambil field biasa
+  const srcs = fields.map((f) =>
+    String(item[`${f}_en` as const] ?? item[f] ?? "")
+  );
+
+  // Terjemahkan batch
+  const outs = srcs.length
+    ? await translateBatch(srcs, { from: "en", to: "id" })
+    : [];
+
+  // Pasang balik
+  const next: any = { ...item };
+  fields.forEach((f, i) => {
+    const source = srcs[i];
+    if (source) next[f] = outs[i] ?? source;
+  });
+
+  // extras_en -> extras (deep translate)
+  if (item.extras_en && typeof item.extras_en === "object") {
+    next.extras = await translateContentObject(item.extras_en);
+  } else if (item.extras && typeof item.extras === "object") {
+    // kalau tidak ada _en, tetap translate extras yang ada
+    next.extras = await translateContentObject(item.extras);
+  }
+
+  return next;
+}
 
 /* ==================== Component ==================== */
 export function AgileStoreSettings() {
   const [sections, setSections] = useState<StoreSection[]>(seedSections());
   const [activeSection, setActiveSection] = useState<string>("hero");
+  const [activeLang, setActiveLang] = useState<Lang>("en"); // << bilingual toggle
 
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewDevice, setPreviewDevice] = useState<Device>("desktop");
 
+  const [aborter, setAborter] = useState<AbortController | null>(null);
   // sumber relasi
   const [catalogProducts, setCatalogProducts] = useState<
     Array<{ id: string; name: string; product_code: string }>
@@ -397,7 +520,7 @@ export function AgileStoreSettings() {
   const [priceIndex, setPriceIndex] = useState<Record<string, number>>({});
   const [currency, setCurrency] = useState<string>("");
 
-  // top-level state (dekat deklarasi state lainnya)
+  // mapping fitur
   const [featureNameToAnyKeyMap, setFeatureNameToAnyKeyMap] = useState<
     Record<string, string>
   >({});
@@ -409,6 +532,30 @@ export function AgileStoreSettings() {
     makeSafeSection(
       sections.find((s) => s.key === key) ?? ({ key } as StoreSection)
     );
+
+  /** ===== Helpers konten bilingual (baca/tulis) ===== */
+  const getC = (s: StoreSection) =>
+    (activeLang === "en" ? s.content_en : s.content) ?? {};
+
+  const mutateSection = (
+    key: StoreSection["key"],
+    mutator: (draft: StoreSection) => StoreSection
+  ) => {
+    setSections((prev) =>
+      prev.map((x) => (x.key === key ? mutator({ ...x }) : x))
+    );
+  };
+
+  const mutateC = (key: StoreSection["key"], updater: (draft: any) => any) => {
+    mutateSection(key, (draft) => {
+      const base =
+        activeLang === "en" ? draft.content_en ?? {} : draft.content ?? {};
+      const next = updater(structuredClone(base) ?? {});
+      if (activeLang === "en") draft.content_en = next;
+      else draft.content = next;
+      return draft;
+    });
+  };
 
   /* ====== Load sections from backend ====== */
   useEffect(() => {
@@ -428,7 +575,8 @@ export function AgileStoreSettings() {
               enabled: !!r.enabled,
               order: Number(r.order ?? 1),
               theme: (r.theme as any) ?? {},
-              content: (r.content as any) ?? {},
+              content_en: (r as any).content_en ?? {}, // << ambil dari backend
+              content: (r.content as any) ?? undefined, // ID
             })
           );
         setSections(mapped);
@@ -452,28 +600,24 @@ export function AgileStoreSettings() {
         );
 
         const pricing = getSection("pricing");
-        if (!pricing.content.refProductCode && rows[0]?.product_code) {
-          setSections((prev) =>
-            prev.map((x) =>
-              x.key === "pricing"
-                ? {
-                    ...x,
-                    content: {
-                      ...x.content,
-                      refProductCode: rows[0].product_code,
-                    },
-                  }
-                : x
-            )
-          );
+        const c = getC(pricing);
+        if (!c.refProductCode && rows[0]?.product_code) {
+          mutateC("pricing", (draft) => ({
+            ...draft,
+            refProductCode: rows[0].product_code,
+          }));
         }
       } catch (e) {
         console.error("[AgileStore] load products failed:", e);
       }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const refProductCode = getSection("pricing").content?.refProductCode || "";
+  const refProductCode =
+    (activeLang === "en"
+      ? getSection("pricing").content_en?.refProductCode
+      : getSection("pricing").content?.refProductCode) || "";
 
   /* ====== Load durations, packages, features(mtx), pricelist ====== */
   useEffect(() => {
@@ -528,7 +672,7 @@ export function AgileStoreSettings() {
             name: String(it.name ?? it.title ?? ""),
           }));
 
-        // build map key -> name (key bisa id, code, feature_id, lowercase variants)
+        // build map key -> name
         const nameByAnyKey = new Map<string, string>();
         featRows.forEach((f) => {
           const keys = [
@@ -541,19 +685,12 @@ export function AgileStoreSettings() {
           keys.forEach((k) => nameByAnyKey.set(String(k), f.name));
         });
 
-        // build inverse map name -> first key (bisa dipakai saat submit untuk konversi nama -> code)
+        // inverse map name -> key
         const featureNameToAnyKey = new Map<string, string>();
         featRows.forEach((f) => {
-          // prefer code, lalu feature_id, lalu id
           const preferKey = f.code ?? f.feature_id ?? f.id;
           if (preferKey) featureNameToAnyKey.set(f.name, preferKey);
         });
-        // setelah build featureNameToAnyKey (Map)
-        setFeatureNameToAnyKeyMap(
-          Object.fromEntries(featureNameToAnyKey.entries())
-        );
-
-        // ...setFeatureNameToAnyKeyMap(Object.fromEntries(featureNameToAnyKey.entries()));
         setFeatureNameToAnyKeyMap(
           Object.fromEntries(featureNameToAnyKey.entries())
         );
@@ -590,16 +727,9 @@ export function AgileStoreSettings() {
           grouped.set(pkgId, arr);
         });
 
-        // to plain object: packageId -> [feature NAMES]
         const featByPkg: Record<string, string[]> = {};
         grouped.forEach((v, k) => (featByPkg[k] = v));
         setFeaturesByPackage(featByPkg);
-
-        // Simpan juga inverse map (opsional, berguna saat submit)
-        // Jika kamu ingin menyimpannya di state agar dapat diakses component lain:
-        // setFeatureNameToAnyKey(Object.fromEntries(featureNameToAnyKey));
-        // tapi di sini kita simpan ke ref atau state jika perlu, contoh:
-        // setFeatureNameToKeyMap(featureNameToAnyKey);
 
         // pricelist
         const priceJson = await getPricelistByProduct(refProductCode);
@@ -618,9 +748,10 @@ export function AgileStoreSettings() {
         console.error("[AgileStore] load relasi failed:", e);
       }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refProductCode]);
 
-  /* ====== Helpers Pricing ====== */
+  /* ====== Helpers Pricing (tanpa perubahan) ====== */
   const durationsMap = useMemo(
     () =>
       durations.reduce<
@@ -650,72 +781,74 @@ export function AgileStoreSettings() {
     planIndex: number,
     opts?: { packageId?: string | number; durationId?: string | number }
   ) => {
-    setSections((prev) =>
-      prev.map((x) => {
-        if (x.key !== "pricing") return x;
-        const nextPlans = [...(x.content.plans ?? [])];
-        const base = nextPlans[planIndex] ?? {};
-        const pkgId =
-          opts?.packageId != null ? opts.packageId : base.package_id;
-        const durSel =
-          opts?.durationId != null ? opts.durationId : base.duration_id;
+    mutateSection("pricing", (draft) => {
+      const c = getC(draft);
+      const nextPlans = [...(c.plans ?? [])];
+      const base = nextPlans[planIndex] ?? {};
+      const pkgId = opts?.packageId != null ? opts.packageId : base.package_id;
+      const durSel =
+        opts?.durationId != null ? opts.durationId : base.duration_id;
 
-        let monthly = base?.price?.monthly ?? 0;
-        let yearly = base?.price?.yearly ?? 0;
-        let autoFromMonthId: string | null = null;
-        let autoFromYearId: string | null = null;
+      let monthly = base?.price?.monthly ?? 0;
+      let yearly = base?.price?.yearly ?? 0;
+      let autoFromMonthId: string | null = null;
+      let autoFromYearId: string | null = null;
 
-        if (pkgId) {
-          if (durSel) {
-            monthly = priceFor(pkgId, durSel);
-            autoFromMonthId = String(durSel);
-            const d12 = findYearlyDuration();
-            if (d12?.id) {
-              yearly = priceFor(pkgId, d12.id) || monthly;
-              autoFromYearId = priceFor(pkgId, d12.id)
-                ? String(d12.id)
-                : String(durSel);
-            } else {
-              yearly = monthly;
-              autoFromYearId = String(durSel);
-            }
+      if (pkgId) {
+        if (durSel) {
+          monthly = priceFor(pkgId, durSel);
+          autoFromMonthId = String(durSel);
+          const d12 = findYearlyDuration();
+          if (d12?.id) {
+            yearly = priceFor(pkgId, d12.id) || monthly;
+            autoFromYearId = priceFor(pkgId, d12.id)
+              ? String(d12.id)
+              : String(durSel);
           } else {
-            const d1 = findMonthlyDuration();
-            const d12 = findYearlyDuration();
-            if (d1?.id) {
-              monthly = priceFor(pkgId, d1.id);
-              autoFromMonthId = String(d1.id);
-            }
-            if (d12?.id) {
-              yearly = priceFor(pkgId, d12.id) || monthly;
-              autoFromYearId = priceFor(pkgId, d12.id)
-                ? String(d12.id)
-                : autoFromMonthId;
-            } else {
-              yearly = monthly;
-              autoFromYearId = autoFromMonthId;
-            }
+            yearly = monthly;
+            autoFromYearId = String(durSel);
+          }
+        } else {
+          const d1 = findMonthlyDuration();
+          const d12 = findYearlyDuration();
+          if (d1?.id) {
+            monthly = priceFor(pkgId, d1.id);
+            autoFromMonthId = String(d1.id);
+          }
+          if (d12?.id) {
+            yearly = priceFor(pkgId, d12.id) || monthly;
+            autoFromYearId = priceFor(pkgId, d12.id)
+              ? String(d12.id)
+              : autoFromMonthId;
+          } else {
+            yearly = monthly;
+            autoFromYearId = autoFromMonthId;
           }
         }
+      }
 
-        nextPlans[planIndex] = {
-          ...base,
-          package_id: pkgId ?? null,
-          duration_id: durSel ?? null,
-          price: { monthly, yearly },
-          features: featuresByPackage[String(pkgId ?? "")] ?? [],
-          _auto_from_month_id: autoFromMonthId,
-          _auto_from_year_id: autoFromYearId,
-        };
-        return { ...x, content: { ...x.content, plans: nextPlans } };
-      })
-    );
+      nextPlans[planIndex] = {
+        ...base,
+        package_id: pkgId ?? null,
+        duration_id: durSel ?? null,
+        price: { monthly, yearly },
+        features: featuresByPackage[String(pkgId ?? "")] ?? [],
+        _auto_from_month_id: autoFromMonthId,
+        _auto_from_year_id: autoFromYearId,
+      };
+
+      const next = { ...c, plans: nextPlans };
+      if (activeLang === "en") draft.content_en = next;
+      else draft.content = next;
+      return draft;
+    });
   };
 
   // resinkron ketika harga/fitur berubah
   useEffect(() => {
     const s = getSection("pricing");
-    const plans: any[] = Array.isArray(s.content?.plans) ? s.content.plans : [];
+    const c = getC(s);
+    const plans: any[] = Array.isArray(c?.plans) ? c.plans : [];
     plans.forEach((p, i) => {
       if (!p?.package_id) return;
       recalcPlanPrices(i, {
@@ -724,14 +857,15 @@ export function AgileStoreSettings() {
       });
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [featuresByPackage, priceIndex]);
+  }, [featuresByPackage, priceIndex, activeLang]);
 
-  /* ====== Save ====== */
+  /* ====== SAVE (kirim content_en & content) ====== */
   const saveAll = async () => {
     try {
-      const toItems = (s: StoreSection) => {
+      const toItems = (s: StoreSection, useEN: boolean) => {
+        const c = useEN ? s.content_en : s.content;
         if (s.key === "products") {
-          const arr = (s.content?.items || []) as Array<any>;
+          const arr = (c?.items || []) as Array<any>;
           return arr.map((it: any, i: number) => ({
             title: it.name ?? it.title ?? "",
             description: it.description ?? "",
@@ -741,7 +875,7 @@ export function AgileStoreSettings() {
           }));
         }
         if (s.key === "pricing") {
-          const plans = (s.content?.plans || []) as Array<any>;
+          const plans = (c?.plans || []) as Array<any>;
           return plans.map((p: any, i: number) => {
             const names: string[] = Array.isArray(p.features) ? p.features : [];
             const explicitCodes: string[] = Array.isArray(p.feature_codes)
@@ -760,14 +894,12 @@ export function AgileStoreSettings() {
               cta_label: p.cta ?? "",
               package_id: p.package_id ?? null,
               duration_id: p.duration_id ?? null,
-              // kirim codes ke backend
               extras: { features: mappedCodes },
             };
           });
         }
-
         if (s.key === "testimonials") {
-          const its = (s.content?.items || []) as Array<any>;
+          const its = (c?.items || []) as Array<any>;
           return its.map((t: any, i: number) => ({
             order: i + 1,
             description: t.quote ?? "",
@@ -780,7 +912,7 @@ export function AgileStoreSettings() {
           }));
         }
         if (s.key === "why") {
-          const its = (s.content?.items || []) as Array<any>;
+          const its = (c?.items || []) as Array<any>;
           return its.map((f: any, i: number) => ({
             order: i + 1,
             title: f.title ?? "",
@@ -788,7 +920,7 @@ export function AgileStoreSettings() {
           }));
         }
         if (s.key === "how") {
-          const its = (s.content?.steps || []) as Array<any>;
+          const its = (c?.steps || []) as Array<any>;
           return its.map((st: any, i: number) => ({
             order: i + 1,
             title: st.title ?? "",
@@ -809,8 +941,9 @@ export function AgileStoreSettings() {
             enabled: s.enabled,
             order: s.order,
             theme: s.theme ?? null,
-            content: s.content ?? null,
-            ...(toItems(s) ? { items: toItems(s) } : {}),
+            content: s.content ?? null, // Indonesia
+            content_en: (s as any).content_en ?? null, // English dasar
+            ...(s.items ? { items: s.items } : {}),
           })),
       };
 
@@ -822,8 +955,9 @@ export function AgileStoreSettings() {
     }
   };
 
-  /* ====== PREVIEW ====== */
+  /* ====== PREVIEW (gunakan konten sesuai bahasa aktif) ====== */
   const SectionPreview = ({ s }: { s: StoreSection }) => {
+    const c = getC(s);
     const t = pickTheme(s.theme);
     const blockStyle = {
       backgroundColor: t.background,
@@ -837,19 +971,17 @@ export function AgileStoreSettings() {
     if (s.key === "hero") {
       return (
         <div className="rounded-xl p-8 text-white mb-6" style={gradient as any}>
-          <div className="text-3xl font-bold mb-2">
-            {s.content?.title ?? ""}
-          </div>
-          <div className="opacity-90 mb-4">{s.content?.subtitle ?? ""}</div>
+          <div className="text-3xl font-bold mb-2">{c?.title ?? ""}</div>
+          <div className="opacity-90 mb-4">{c?.subtitle ?? ""}</div>
           <div className="flex gap-2">
             <Button className="bg-white text-black hover:bg-white/90">
-              {s.content?.primaryCta ?? "Get Started"}
+              {c?.primaryCta ?? "Get Started"}
             </Button>
             <Button
               variant="secondary"
               className="bg-transparent border border-white/30 text-white hover:bg-white/10"
             >
-              {s.content?.secondaryCta ?? "Learn More"}
+              {c?.secondaryCta ?? "Learn More"}
             </Button>
           </div>
         </div>
@@ -859,11 +991,9 @@ export function AgileStoreSettings() {
     if (s.key === "why") {
       return (
         <div className="rounded-xl p-6 border mb-6" style={blockStyle as any}>
-          <div className="text-xl font-semibold mb-2">
-            {s.content?.title ?? ""}
-          </div>
+          <div className="text-xl font-semibold mb-2">{c?.title ?? ""}</div>
           <div className="grid md:grid-cols-2 gap-3">
-            {(s.content?.items ?? []).map((it: any, i: number) => (
+            {(c?.items ?? []).map((it: any, i: number) => (
               <div
                 key={i}
                 className="p-3 rounded-lg border"
@@ -881,14 +1011,10 @@ export function AgileStoreSettings() {
     if (s.key === "how") {
       return (
         <div className="rounded-xl p-6 border mb-6" style={blockStyle as any}>
-          <div className="text-xl font-semibold mb-2">
-            {s.content?.title ?? ""}
-          </div>
-          <div className="text-sm opacity-80 mb-3">
-            {s.content?.subtitle ?? ""}
-          </div>
+          <div className="text-xl font-semibold mb-2">{c?.title ?? ""}</div>
+          <div className="text-sm opacity-80 mb-3">{c?.subtitle ?? ""}</div>
           <ol className="list-decimal pl-6 space-y-1">
-            {(s.content?.steps ?? []).map((st: any, i: number) => (
+            {(c?.steps ?? []).map((st: any, i: number) => (
               <li key={i}>
                 <span className="font-medium">{st.title}:</span>{" "}
                 <span className="opacity-80">{st.description}</span>
@@ -903,13 +1029,11 @@ export function AgileStoreSettings() {
       return (
         <div className="rounded-xl p-6 border mb-6" style={blockStyle as any}>
           <div className="text-xl font-semibold mb-2">
-            {s.content?.title ?? "Our Products"}
+            {c?.title ?? "Our Products"}
           </div>
-          <div className="text-sm opacity-80 mb-3">
-            {s.content?.subtitle ?? ""}
-          </div>
+          <div className="text-sm opacity-80 mb-3">{c?.subtitle ?? ""}</div>
           <div className="grid md:grid-cols-2 gap-3">
-            {(s.content?.items ?? []).map((it: any, i: number) => (
+            {(c?.items ?? []).map((it: any, i: number) => (
               <div
                 key={i}
                 className="p-3 rounded-lg border"
@@ -934,14 +1058,10 @@ export function AgileStoreSettings() {
     if (s.key === "pricing") {
       return (
         <div className="rounded-xl p-6 border mb-6" style={blockStyle as any}>
-          <div className="text-xl font-semibold mb-2">
-            {s.content?.title ?? ""}
-          </div>
-          <div className="text-sm opacity-80 mb-4">
-            {s.content?.subtitle ?? ""}
-          </div>
+          <div className="text-xl font-semibold mb-2">{c?.title ?? ""}</div>
+          <div className="text-sm opacity-80 mb-4">{c?.subtitle ?? ""}</div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            {(s.content?.plans ?? []).map((p: any, i: number) => {
+            {(c?.plans ?? []).map((p: any, i: number) => {
               const names: string[] = Array.isArray(p.features)
                 ? p.features
                 : [];
@@ -989,19 +1109,17 @@ export function AgileStoreSettings() {
       };
       return (
         <div className="rounded-xl p-6 text-white mb-6" style={gradient as any}>
-          <div className="text-lg opacity-90">{s.content?.title ?? ""}</div>
-          <div className="text-sm opacity-90 mb-3">
-            {s.content?.subtitle ?? ""}
-          </div>
+          <div className="text-lg opacity-90">{c?.title ?? ""}</div>
+          <div className="text-sm opacity-90 mb-3">{c?.subtitle ?? ""}</div>
           <div className="flex gap-2">
             <Button className="bg-white text-black hover:bg-white/90">
-              {s.content?.primary ?? "Primary"}
+              {c?.primary ?? "Primary"}
             </Button>
             <Button
               variant="secondary"
               className="bg-transparent border border-white/30 text-white hover:bg-white/10"
             >
-              {s.content?.secondary ?? "Secondary"}
+              {c?.secondary ?? "Secondary"}
             </Button>
           </div>
         </div>
@@ -1012,10 +1130,10 @@ export function AgileStoreSettings() {
       return (
         <div className="rounded-xl p-6 border mb-6" style={blockStyle as any}>
           <div className="text-sm text-muted-foreground mb-3">
-            {s.content?.title ?? ""}
+            {c?.title ?? ""}
           </div>
           <div className="grid md:grid-cols-3 gap-4">
-            {(s.content?.items ?? []).map((t: any, i: number) => (
+            {(c?.items ?? []).map((t: any, i: number) => (
               <div key={i} className="p-4 rounded-lg border bg-card">
                 <div className="text-sm italic">"{t.quote}"</div>
                 <div className="mt-3 text-sm font-semibold">{t.name}</div>
@@ -1031,11 +1149,9 @@ export function AgileStoreSettings() {
       return (
         <div className="rounded-xl p-6 border mb-6" style={blockStyle as any}>
           <div className="text-xl font-semibold">
-            {s.content?.brand ?? "Agile Store"}
+            {c?.brand ?? "Agile Store"}
           </div>
-          <div className="text-sm opacity-80">
-            {s.content?.description ?? ""}
-          </div>
+          <div className="text-sm opacity-80">{c?.description ?? ""}</div>
         </div>
       );
     }
@@ -1044,13 +1160,11 @@ export function AgileStoreSettings() {
       return (
         <div className="rounded-xl p-6 border mb-6" style={blockStyle as any}>
           <div className="text-xl font-semibold mb-2">
-            {s.content?.headline ?? "About"}
+            {c?.headline ?? "About"}
           </div>
-          <div className="text-sm opacity-80 mb-4">
-            {s.content?.subheadline ?? ""}
-          </div>
+          <div className="text-sm opacity-80 mb-4">{c?.subheadline ?? ""}</div>
           <div className="grid md:grid-cols-2 gap-3">
-            {(s.content?.features ?? []).map((f: string, i: number) => (
+            {(c?.features ?? []).map((f: string, i: number) => (
               <div
                 key={i}
                 className="p-3 rounded-lg border"
@@ -1068,15 +1182,13 @@ export function AgileStoreSettings() {
       return (
         <div className="rounded-xl p-6 border mb-6" style={blockStyle as any}>
           <div className="text-xl font-semibold">
-            {s.content?.headline ?? "Contact"}
+            {c?.headline ?? "Contact"}
           </div>
-          <div className="text-sm opacity-80 mb-3">
-            {s.content?.subheadline ?? ""}
-          </div>
+          <div className="text-sm opacity-80 mb-3">{c?.subheadline ?? ""}</div>
           <div className="text-sm">
-            <div>Email: {s.content?.email}</div>
-            <div>Phone: {s.content?.phone}</div>
-            <div>Address: {s.content?.address}</div>
+            <div>Email: {c?.email}</div>
+            <div>Phone: {c?.phone}</div>
+            <div>Address: {c?.address}</div>
           </div>
         </div>
       );
@@ -1102,6 +1214,73 @@ export function AgileStoreSettings() {
     return copy;
   };
 
+  /* ====== Generate (EN -> ID) ====== */
+  const generateIDForSection = async (key: StoreSection["key"]) => {
+    const sec = getSection(key);
+    const en = sec.content_en ?? {};
+    const id = await translateContentObject(en);
+    mutateSection(key, (draft) => {
+      draft.content = id;
+      return draft;
+    });
+    alert(`Generated ID for section: ${sec.name}`);
+  };
+
+  const generateIDForAll = async () => {
+    for (const s of sections) {
+      const en = s.content_en ?? {};
+      const id = await translateContentObject(en);
+      // flush per section
+      // eslint-disable-next-line no-loop-func
+      setSections((prev) =>
+        prev.map((x) => (x.key === s.key ? { ...x, content: id } : x))
+      );
+    }
+    alert("Generated ID for all sections.");
+  };
+  async function handleGenerateSectionFromEN(sectionKey: StoreSection["key"]) {
+    const ac = new AbortController();
+    setAborter(ac);
+    try {
+      const cur = sections.find((s) => s.key === sectionKey);
+      if (!cur) return;
+      const enContent = cur.content_en ?? cur.content ?? {};
+      const idContent = await translateObjectENtoID(enContent); // sudah kirim signal/glossary
+
+      let idItems = cur.items;
+      if (Array.isArray(cur.items) && cur.items.length) {
+        const translatedItems = [];
+        for (const it of cur.items) {
+          translatedItems.push(await translateItemENtoID(it)); // sudah kirim signal/glossary
+        }
+        idItems = translatedItems;
+      }
+
+      setSections((prev) =>
+        prev.map((s) =>
+          s.key === sectionKey
+            ? { ...s, content: idContent, items: idItems }
+            : s
+        )
+      );
+    } finally {
+      setAborter(null);
+    }
+  }
+
+  async function handleGenerateAllFromEN() {
+    const ac = new AbortController();
+    setAborter(ac);
+    try {
+      // sequential untuk aman rate limit
+      for (const s of sections) {
+        await handleGenerateSectionFromEN(s.key);
+      }
+    } finally {
+      setAborter(null);
+    }
+  }
+
   /* ==================== Render ==================== */
   return (
     <div className="max-w-[1200px] mx-auto space-y-6">
@@ -1115,6 +1294,28 @@ export function AgileStoreSettings() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {/* Toggle Bahasa (tanpa ubah gaya lain) */}
+          <div className="flex items-center gap-1 mr-2">
+            <Button
+              variant={activeLang === "en" ? "default" : "secondary"}
+              className="h-8"
+              onClick={() => setActiveLang("en")}
+              title="Edit English content (base)"
+            >
+              <Languages className="h-4 w-4 mr-2" />
+              English
+            </Button>
+            <Button
+              variant={activeLang === "id" ? "default" : "secondary"}
+              className="h-8"
+              onClick={() => setActiveLang("id")}
+              title="Edit Indonesian content"
+            >
+              <Languages className="h-4 w-4 mr-2" />
+              Indonesia
+            </Button>
+          </div>
+
           <Button variant="secondary" onClick={() => setPreviewOpen(true)}>
             Preview
           </Button>
@@ -1123,6 +1324,20 @@ export function AgileStoreSettings() {
           </Button>
         </div>
       </div>
+
+      {/* Info bar: tombol generate semua saat tab ID */}
+      {activeLang === "id" && (
+        <div className="p-3 rounded-lg border flex items-center justify-between">
+          <div className="text-sm">
+            Tab <b>Bahasa Indonesia</b>. Anda bisa mengisi manual atau klik
+            generate untuk menyalin/terjemahkan dari basis <b>English</b>.
+          </div>
+          <Button variant="outline" onClick={handleGenerateAllFromEN}>
+            <Wand2 className="h-4 w-4 mr-2" />
+            Generate ID from EN (All Sections)
+          </Button>
+        </div>
+      )}
 
       {/* Tab tunggal: Sections */}
       <div className="flex flex-wrap gap-2">
@@ -1220,11 +1435,12 @@ export function AgileStoreSettings() {
           <Card>
             <CardHeader>
               <CardTitle>
-                {getSection(activeSection as any).name} Settings
+                {getSection(activeSection as any).name} Settings{" "}
+                {activeLang === "en" ? "(English)" : "(Indonesia)"}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
-              {/* Theme per section */}
+              {/* Theme per section (unchanged) */}
               <div className="space-y-3 p-3 rounded-lg border">
                 <div className="text-sm font-medium">Section Theme</div>
                 <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
@@ -1262,94 +1478,74 @@ export function AgileStoreSettings() {
                 </div>
               </div>
 
+              {/* Tombol generate 1 section (muncul hanya saat ID) */}
+              {activeLang === "id" && (
+                <div className="flex justify-end">
+                  <Button
+                    variant="outline"
+                    onClick={() =>
+                      handleGenerateSectionFromEN(activeSection as any)
+                    }
+                  >
+                    <Wand2 className="h-4 w-4 mr-2" />
+                    Generate this section from EN
+                  </Button>
+                </div>
+              )}
+
               {/* ================= HERO ================= */}
               {activeSection === "hero" &&
                 (() => {
                   const s = getSection("hero");
+                  const c = getC(s);
                   return (
                     <div className="space-y-4">
                       <div className="grid md:grid-cols-2 gap-4">
                         <div>
                           <Label>Title</Label>
                           <Input
-                            value={s.content.title ?? ""}
+                            value={c.title ?? ""}
                             onChange={(e) =>
-                              setSections((prev) =>
-                                prev.map((x) =>
-                                  x.key === "hero"
-                                    ? {
-                                        ...x,
-                                        content: {
-                                          ...x.content,
-                                          title: e.target.value,
-                                        },
-                                      }
-                                    : x
-                                )
-                              )
+                              mutateC("hero", (d) => ({
+                                ...d,
+                                title: e.target.value,
+                              }))
                             }
                           />
                         </div>
                         <div>
                           <Label>Subtitle</Label>
                           <Input
-                            value={s.content.subtitle ?? ""}
+                            value={c.subtitle ?? ""}
                             onChange={(e) =>
-                              setSections((prev) =>
-                                prev.map((x) =>
-                                  x.key === "hero"
-                                    ? {
-                                        ...x,
-                                        content: {
-                                          ...x.content,
-                                          subtitle: e.target.value,
-                                        },
-                                      }
-                                    : x
-                                )
-                              )
+                              mutateC("hero", (d) => ({
+                                ...d,
+                                subtitle: e.target.value,
+                              }))
                             }
                           />
                         </div>
                         <div>
                           <Label>Primary CTA</Label>
                           <Input
-                            value={s.content.primaryCta ?? ""}
+                            value={c.primaryCta ?? ""}
                             onChange={(e) =>
-                              setSections((prev) =>
-                                prev.map((x) =>
-                                  x.key === "hero"
-                                    ? {
-                                        ...x,
-                                        content: {
-                                          ...x.content,
-                                          primaryCta: e.target.value,
-                                        },
-                                      }
-                                    : x
-                                )
-                              )
+                              mutateC("hero", (d) => ({
+                                ...d,
+                                primaryCta: e.target.value,
+                              }))
                             }
                           />
                         </div>
                         <div>
                           <Label>Secondary CTA</Label>
                           <Input
-                            value={s.content.secondaryCta ?? ""}
+                            value={c.secondaryCta ?? ""}
                             onChange={(e) =>
-                              setSections((prev) =>
-                                prev.map((x) =>
-                                  x.key === "hero"
-                                    ? {
-                                        ...x,
-                                        content: {
-                                          ...x.content,
-                                          secondaryCta: e.target.value,
-                                        },
-                                      }
-                                    : x
-                                )
-                              )
+                              mutateC("hero", (d) => ({
+                                ...d,
+                                secondaryCta: e.target.value,
+                              }))
                             }
                           />
                         </div>
@@ -1362,28 +1558,18 @@ export function AgileStoreSettings() {
               {activeSection === "why" &&
                 (() => {
                   const s = getSection("why");
-                  const items: any[] = Array.isArray(s.content?.items)
-                    ? s.content.items
-                    : [];
+                  const c = getC(s);
+                  const items: any[] = Array.isArray(c?.items) ? c.items : [];
                   return (
                     <div className="space-y-4">
                       <Label>Title</Label>
                       <Input
-                        value={s.content.title ?? ""}
+                        value={c.title ?? ""}
                         onChange={(e) =>
-                          setSections((prev) =>
-                            prev.map((x) =>
-                              x.key === "why"
-                                ? {
-                                    ...x,
-                                    content: {
-                                      ...x.content,
-                                      title: e.target.value,
-                                    },
-                                  }
-                                : x
-                            )
-                          )
+                          mutateC("why", (d) => ({
+                            ...d,
+                            title: e.target.value,
+                          }))
                         }
                       />
                       <div className="space-y-3">
@@ -1396,40 +1582,28 @@ export function AgileStoreSettings() {
                               placeholder="Feature title"
                               value={it.title ?? ""}
                               onChange={(e) =>
-                                setSections((prev) =>
-                                  prev.map((x) => {
-                                    if (x.key !== "why") return x;
-                                    const next = [...(x.content.items ?? [])];
-                                    next[i] = {
-                                      ...next[i],
-                                      title: e.target.value,
-                                    };
-                                    return {
-                                      ...x,
-                                      content: { ...x.content, items: next },
-                                    };
-                                  })
-                                )
+                                mutateC("why", (d) => {
+                                  const next = [...(d.items ?? [])];
+                                  next[i] = {
+                                    ...next[i],
+                                    title: e.target.value,
+                                  };
+                                  return { ...d, items: next };
+                                })
                               }
                             />
                             <Input
                               placeholder="Description"
                               value={it.description ?? ""}
                               onChange={(e) =>
-                                setSections((prev) =>
-                                  prev.map((x) => {
-                                    if (x.key !== "why") return x;
-                                    const next = [...(x.content.items ?? [])];
-                                    next[i] = {
-                                      ...next[i],
-                                      description: e.target.value,
-                                    };
-                                    return {
-                                      ...x,
-                                      content: { ...x.content, items: next },
-                                    };
-                                  })
-                                )
+                                mutateC("why", (d) => {
+                                  const next = [...(d.items ?? [])];
+                                  next[i] = {
+                                    ...next[i],
+                                    description: e.target.value,
+                                  };
+                                  return { ...d, items: next };
+                                })
                               }
                             />
                           </div>
@@ -1438,22 +1612,13 @@ export function AgileStoreSettings() {
                           variant="outline"
                           size="sm"
                           onClick={() =>
-                            setSections((prev) =>
-                              prev.map((x) =>
-                                x.key === "why"
-                                  ? {
-                                      ...x,
-                                      content: {
-                                        ...x.content,
-                                        items: [
-                                          ...(x.content.items ?? []),
-                                          { title: "", description: "" },
-                                        ],
-                                      },
-                                    }
-                                  : x
-                              )
-                            )
+                            mutateC("why", (d) => ({
+                              ...d,
+                              items: [
+                                ...(d.items ?? []),
+                                { title: "", description: "" },
+                              ],
+                            }))
                           }
                         >
                           <Plus className="h-4 w-4 mr-2" /> Add item
@@ -1467,51 +1632,32 @@ export function AgileStoreSettings() {
               {activeSection === "how" &&
                 (() => {
                   const s = getSection("how");
-                  const steps: any[] = Array.isArray(s.content?.steps)
-                    ? s.content.steps
-                    : [];
+                  const c = getC(s);
+                  const steps: any[] = Array.isArray(c?.steps) ? c.steps : [];
                   return (
                     <div className="space-y-4">
                       <div className="grid md:grid-cols-2 gap-4">
                         <div>
                           <Label>Title</Label>
                           <Input
-                            value={s.content.title ?? ""}
+                            value={c.title ?? ""}
                             onChange={(e) =>
-                              setSections((prev) =>
-                                prev.map((x) =>
-                                  x.key === "how"
-                                    ? {
-                                        ...x,
-                                        content: {
-                                          ...x.content,
-                                          title: e.target.value,
-                                        },
-                                      }
-                                    : x
-                                )
-                              )
+                              mutateC("how", (d) => ({
+                                ...d,
+                                title: e.target.value,
+                              }))
                             }
                           />
                         </div>
                         <div>
                           <Label>Subtitle</Label>
                           <Input
-                            value={s.content.subtitle ?? ""}
+                            value={c.subtitle ?? ""}
                             onChange={(e) =>
-                              setSections((prev) =>
-                                prev.map((x) =>
-                                  x.key === "how"
-                                    ? {
-                                        ...x,
-                                        content: {
-                                          ...x.content,
-                                          subtitle: e.target.value,
-                                        },
-                                      }
-                                    : x
-                                )
-                              )
+                              mutateC("how", (d) => ({
+                                ...d,
+                                subtitle: e.target.value,
+                              }))
                             }
                           />
                         </div>
@@ -1526,40 +1672,28 @@ export function AgileStoreSettings() {
                               placeholder="Step title"
                               value={st.title ?? ""}
                               onChange={(e) =>
-                                setSections((prev) =>
-                                  prev.map((x) => {
-                                    if (x.key !== "how") return x;
-                                    const next = [...(x.content.steps ?? [])];
-                                    next[i] = {
-                                      ...next[i],
-                                      title: e.target.value,
-                                    };
-                                    return {
-                                      ...x,
-                                      content: { ...x.content, steps: next },
-                                    };
-                                  })
-                                )
+                                mutateC("how", (d) => {
+                                  const next = [...(d.steps ?? [])];
+                                  next[i] = {
+                                    ...next[i],
+                                    title: e.target.value,
+                                  };
+                                  return { ...d, steps: next };
+                                })
                               }
                             />
                             <Input
                               placeholder="Description"
                               value={st.description ?? ""}
                               onChange={(e) =>
-                                setSections((prev) =>
-                                  prev.map((x) => {
-                                    if (x.key !== "how") return x;
-                                    const next = [...(x.content.steps ?? [])];
-                                    next[i] = {
-                                      ...next[i],
-                                      description: e.target.value,
-                                    };
-                                    return {
-                                      ...x,
-                                      content: { ...x.content, steps: next },
-                                    };
-                                  })
-                                )
+                                mutateC("how", (d) => {
+                                  const next = [...(d.steps ?? [])];
+                                  next[i] = {
+                                    ...next[i],
+                                    description: e.target.value,
+                                  };
+                                  return { ...d, steps: next };
+                                })
                               }
                             />
                           </div>
@@ -1568,22 +1702,13 @@ export function AgileStoreSettings() {
                           variant="outline"
                           size="sm"
                           onClick={() =>
-                            setSections((prev) =>
-                              prev.map((x) =>
-                                x.key === "how"
-                                  ? {
-                                      ...x,
-                                      content: {
-                                        ...x.content,
-                                        steps: [
-                                          ...(x.content.steps ?? []),
-                                          { title: "", description: "" },
-                                        ],
-                                      },
-                                    }
-                                  : x
-                              )
-                            )
+                            mutateC("how", (d) => ({
+                              ...d,
+                              steps: [
+                                ...(d.steps ?? []),
+                                { title: "", description: "" },
+                              ],
+                            }))
                           }
                         >
                           <Plus className="h-4 w-4 mr-2" /> Add step
@@ -1597,51 +1722,32 @@ export function AgileStoreSettings() {
               {activeSection === "products" &&
                 (() => {
                   const s = getSection("products");
-                  const items: any[] = Array.isArray(s.content?.items)
-                    ? s.content.items
-                    : [];
+                  const c = getC(s);
+                  const items: any[] = Array.isArray(c?.items) ? c.items : [];
                   return (
                     <div className="space-y-4">
                       <div className="grid md:grid-cols-2 gap-4">
                         <div>
                           <Label>Section Title</Label>
                           <Input
-                            value={s.content.title ?? ""}
+                            value={c.title ?? ""}
                             onChange={(e) =>
-                              setSections((prev) =>
-                                prev.map((x) =>
-                                  x.key === "products"
-                                    ? {
-                                        ...x,
-                                        content: {
-                                          ...x.content,
-                                          title: e.target.value,
-                                        },
-                                      }
-                                    : x
-                                )
-                              )
+                              mutateC("products", (d) => ({
+                                ...d,
+                                title: e.target.value,
+                              }))
                             }
                           />
                         </div>
                         <div>
                           <Label>Subtitle</Label>
                           <Input
-                            value={s.content.subtitle ?? ""}
+                            value={c.subtitle ?? ""}
                             onChange={(e) =>
-                              setSections((prev) =>
-                                prev.map((x) =>
-                                  x.key === "products"
-                                    ? {
-                                        ...x,
-                                        content: {
-                                          ...x.content,
-                                          subtitle: e.target.value,
-                                        },
-                                      }
-                                    : x
-                                )
-                              )
+                              mutateC("products", (d) => ({
+                                ...d,
+                                subtitle: e.target.value,
+                              }))
                             }
                           />
                         </div>
@@ -1658,40 +1764,28 @@ export function AgileStoreSettings() {
                                 placeholder="Product name"
                                 value={it.name ?? ""}
                                 onChange={(e) =>
-                                  setSections((prev) =>
-                                    prev.map((x) => {
-                                      if (x.key !== "products") return x;
-                                      const next = [...(x.content.items ?? [])];
-                                      next[i] = {
-                                        ...next[i],
-                                        name: e.target.value,
-                                      };
-                                      return {
-                                        ...x,
-                                        content: { ...x.content, items: next },
-                                      };
-                                    })
-                                  )
+                                  mutateC("products", (d) => {
+                                    const next = [...(d.items ?? [])];
+                                    next[i] = {
+                                      ...next[i],
+                                      name: e.target.value,
+                                    };
+                                    return { ...d, items: next };
+                                  })
                                 }
                               />
                               <Input
                                 placeholder="CTA label"
                                 value={it.cta ?? ""}
                                 onChange={(e) =>
-                                  setSections((prev) =>
-                                    prev.map((x) => {
-                                      if (x.key !== "products") return x;
-                                      const next = [...(x.content.items ?? [])];
-                                      next[i] = {
-                                        ...next[i],
-                                        cta: e.target.value,
-                                      };
-                                      return {
-                                        ...x,
-                                        content: { ...x.content, items: next },
-                                      };
-                                    })
-                                  )
+                                  mutateC("products", (d) => {
+                                    const next = [...(d.items ?? [])];
+                                    next[i] = {
+                                      ...next[i],
+                                      cta: e.target.value,
+                                    };
+                                    return { ...d, items: next };
+                                  })
                                 }
                               />
                             </div>
@@ -1699,20 +1793,14 @@ export function AgileStoreSettings() {
                               placeholder="Short description"
                               value={it.description ?? ""}
                               onChange={(e) =>
-                                setSections((prev) =>
-                                  prev.map((x) => {
-                                    if (x.key !== "products") return x;
-                                    const next = [...(x.content.items ?? [])];
-                                    next[i] = {
-                                      ...next[i],
-                                      description: e.target.value,
-                                    };
-                                    return {
-                                      ...x,
-                                      content: { ...x.content, items: next },
-                                    };
-                                  })
-                                )
+                                mutateC("products", (d) => {
+                                  const next = [...(d.items ?? [])];
+                                  next[i] = {
+                                    ...next[i],
+                                    description: e.target.value,
+                                  };
+                                  return { ...d, items: next };
+                                })
                               }
                             />
                             <div className="grid md:grid-cols-2 gap-2">
@@ -1723,25 +1811,14 @@ export function AgileStoreSettings() {
                                 <Select
                                   value={it.product_code ?? ""}
                                   onValueChange={(val) =>
-                                    setSections((prev) =>
-                                      prev.map((x) => {
-                                        if (x.key !== "products") return x;
-                                        const next = [
-                                          ...(x.content.items ?? []),
-                                        ];
-                                        next[i] = {
-                                          ...next[i],
-                                          product_code: val,
-                                        };
-                                        return {
-                                          ...x,
-                                          content: {
-                                            ...x.content,
-                                            items: next,
-                                          },
-                                        };
-                                      })
-                                    )
+                                    mutateC("products", (d) => {
+                                      const next = [...(d.items ?? [])];
+                                      next[i] = {
+                                        ...next[i],
+                                        product_code: val,
+                                      };
+                                      return { ...d, items: next };
+                                    })
                                   }
                                 >
                                   <SelectTrigger>
@@ -1764,23 +1841,14 @@ export function AgileStoreSettings() {
                                   variant="ghost"
                                   size="icon"
                                   onClick={() =>
-                                    setSections((prev) =>
-                                      prev.map((x) => {
-                                        if (x.key !== "products") return x;
-                                        const moved = arrayMove(
-                                          x.content.items ?? [],
-                                          i,
-                                          Math.max(0, i - 1)
-                                        );
-                                        return {
-                                          ...x,
-                                          content: {
-                                            ...x.content,
-                                            items: moved,
-                                          },
-                                        };
-                                      })
-                                    )
+                                    mutateC("products", (d) => ({
+                                      ...d,
+                                      items: arrayMove(
+                                        d.items ?? [],
+                                        i,
+                                        Math.max(0, i - 1)
+                                      ),
+                                    }))
                                   }
                                 >
                                   <ArrowUp className="h-4 w-4" />
@@ -1789,23 +1857,10 @@ export function AgileStoreSettings() {
                                   variant="ghost"
                                   size="icon"
                                   onClick={() =>
-                                    setSections((prev) =>
-                                      prev.map((x) => {
-                                        if (x.key !== "products") return x;
-                                        const moved = arrayMove(
-                                          x.content.items ?? [],
-                                          i,
-                                          i + 1
-                                        );
-                                        return {
-                                          ...x,
-                                          content: {
-                                            ...x.content,
-                                            items: moved,
-                                          },
-                                        };
-                                      })
-                                    )
+                                    mutateC("products", (d) => ({
+                                      ...d,
+                                      items: arrayMove(d.items ?? [], i, i + 1),
+                                    }))
                                   }
                                 >
                                   <ArrowDown className="h-4 w-4" />
@@ -1814,22 +1869,11 @@ export function AgileStoreSettings() {
                                   variant="destructive"
                                   size="icon"
                                   onClick={() =>
-                                    setSections((prev) =>
-                                      prev.map((x) => {
-                                        if (x.key !== "products") return x;
-                                        const next = [
-                                          ...(x.content.items ?? []),
-                                        ];
-                                        next.splice(i, 1);
-                                        return {
-                                          ...x,
-                                          content: {
-                                            ...x.content,
-                                            items: next,
-                                          },
-                                        };
-                                      })
-                                    )
+                                    mutateC("products", (d) => {
+                                      const next = [...(d.items ?? [])];
+                                      next.splice(i, 1);
+                                      return { ...d, items: next };
+                                    })
                                   }
                                 >
                                   <Trash2 className="h-4 w-4" />
@@ -1842,26 +1886,13 @@ export function AgileStoreSettings() {
                           variant="outline"
                           size="sm"
                           onClick={() =>
-                            setSections((prev) =>
-                              prev.map((x) =>
-                                x.key === "products"
-                                  ? {
-                                      ...x,
-                                      content: {
-                                        ...x.content,
-                                        items: [
-                                          ...(x.content.items ?? []),
-                                          {
-                                            name: "",
-                                            description: "",
-                                            cta: "",
-                                          },
-                                        ],
-                                      },
-                                    }
-                                  : x
-                              )
-                            )
+                            mutateC("products", (d) => ({
+                              ...d,
+                              items: [
+                                ...(d.items ?? []),
+                                { name: "", description: "", cta: "" },
+                              ],
+                            }))
                           }
                         >
                           <Plus className="h-4 w-4 mr-2" /> Add product card
@@ -1875,26 +1906,18 @@ export function AgileStoreSettings() {
               {activeSection === "pricing" &&
                 (() => {
                   const s = getSection("pricing");
+                  const c = getC(s);
                   return (
                     <div className="space-y-4">
                       <div>
                         <Label>Reference Product (for packages & prices)</Label>
                         <Select
-                          value={s.content.refProductCode ?? ""}
+                          value={c.refProductCode ?? ""}
                           onValueChange={(val) =>
-                            setSections((prev) =>
-                              prev.map((x) =>
-                                x.key === "pricing"
-                                  ? {
-                                      ...x,
-                                      content: {
-                                        ...x.content,
-                                        refProductCode: val,
-                                      },
-                                    }
-                                  : x
-                              )
-                            )
+                            mutateC("pricing", (d) => ({
+                              ...d,
+                              refProductCode: val,
+                            }))
                           }
                         >
                           <SelectTrigger>
@@ -1917,49 +1940,31 @@ export function AgileStoreSettings() {
                         <div>
                           <Label>Section Title</Label>
                           <Input
-                            value={s.content.title ?? ""}
+                            value={c.title ?? ""}
                             onChange={(e) =>
-                              setSections((prev) =>
-                                prev.map((x) =>
-                                  x.key === "pricing"
-                                    ? {
-                                        ...x,
-                                        content: {
-                                          ...x.content,
-                                          title: e.target.value,
-                                        },
-                                      }
-                                    : x
-                                )
-                              )
+                              mutateC("pricing", (d) => ({
+                                ...d,
+                                title: e.target.value,
+                              }))
                             }
                           />
                         </div>
                         <div>
                           <Label>Subtitle</Label>
                           <Input
-                            value={s.content.subtitle ?? ""}
+                            value={c.subtitle ?? ""}
                             onChange={(e) =>
-                              setSections((prev) =>
-                                prev.map((x) =>
-                                  x.key === "pricing"
-                                    ? {
-                                        ...x,
-                                        content: {
-                                          ...x.content,
-                                          subtitle: e.target.value,
-                                        },
-                                      }
-                                    : x
-                                )
-                              )
+                              mutateC("pricing", (d) => ({
+                                ...d,
+                                subtitle: e.target.value,
+                              }))
                             }
                           />
                         </div>
                       </div>
 
                       <div className="grid md:grid-cols-3 gap-3">
-                        {(s.content.plans ?? []).map((p: any, i: number) => {
+                        {(c.plans ?? []).map((p: any, i: number) => {
                           const autoMonthId: string | null =
                             p?._auto_from_month_id ?? null;
                           const autoYearId: string | null =
@@ -1978,22 +1983,14 @@ export function AgileStoreSettings() {
                               <Input
                                 value={p.name ?? ""}
                                 onChange={(e) =>
-                                  setSections((prev) =>
-                                    prev.map((x) => {
-                                      if (x.key !== "pricing") return x;
-                                      const plans = [
-                                        ...(x.content.plans ?? []),
-                                      ];
-                                      plans[i] = {
-                                        ...plans[i],
-                                        name: e.target.value,
-                                      };
-                                      return {
-                                        ...x,
-                                        content: { ...x.content, plans },
-                                      };
-                                    })
-                                  )
+                                  mutateC("pricing", (d) => {
+                                    const plans = [...(d.plans ?? [])];
+                                    plans[i] = {
+                                      ...plans[i],
+                                      name: e.target.value,
+                                    };
+                                    return { ...d, plans };
+                                  })
                                 }
                                 placeholder="Plan name"
                               />
@@ -2002,9 +1999,6 @@ export function AgileStoreSettings() {
                                 <div>
                                   <div className="flex items-center justify-between">
                                     <Label className="text-xs">Package</Label>
-                                    {/* <span className="text-[10px] text-muted-foreground">
-                                      Reference Product
-                                    </span> */}
                                   </div>
                                   <Select
                                     value={
@@ -2015,13 +2009,7 @@ export function AgileStoreSettings() {
                                     }
                                   >
                                     <SelectTrigger>
-                                      <SelectValue
-                                        placeholder={
-                                          refProductCode
-                                            ? "Choose package"
-                                            : "Pick Reference Product first"
-                                        }
-                                      />
+                                      <SelectValue placeholder="Choose package" />
                                     </SelectTrigger>
                                     <SelectContent>
                                       {packages.map((pk) => (
@@ -2092,25 +2080,17 @@ export function AgileStoreSettings() {
                                     type="number"
                                     value={p?.price?.monthly ?? 0}
                                     onChange={(e) =>
-                                      setSections((prev) =>
-                                        prev.map((x) => {
-                                          if (x.key !== "pricing") return x;
-                                          const plans = [
-                                            ...(x.content.plans ?? []),
-                                          ];
-                                          plans[i] = {
-                                            ...plans[i],
-                                            price: {
-                                              ...(plans[i].price ?? {}),
-                                              monthly: Number(e.target.value),
-                                            },
-                                          };
-                                          return {
-                                            ...x,
-                                            content: { ...x.content, plans },
-                                          };
-                                        })
-                                      )
+                                      mutateC("pricing", (d) => {
+                                        const plans = [...(d.plans ?? [])];
+                                        plans[i] = {
+                                          ...plans[i],
+                                          price: {
+                                            ...(plans[i].price ?? {}),
+                                            monthly: Number(e.target.value),
+                                          },
+                                        };
+                                        return { ...d, plans };
+                                      })
                                     }
                                   />
                                 </div>
@@ -2127,25 +2107,17 @@ export function AgileStoreSettings() {
                                     type="number"
                                     value={p?.price?.yearly ?? 0}
                                     onChange={(e) =>
-                                      setSections((prev) =>
-                                        prev.map((x) => {
-                                          if (x.key !== "pricing") return x;
-                                          const plans = [
-                                            ...(x.content.plans ?? []),
-                                          ];
-                                          plans[i] = {
-                                            ...plans[i],
-                                            price: {
-                                              ...(plans[i].price ?? {}),
-                                              yearly: Number(e.target.value),
-                                            },
-                                          };
-                                          return {
-                                            ...x,
-                                            content: { ...x.content, plans },
-                                          };
-                                        })
-                                      )
+                                      mutateC("pricing", (d) => {
+                                        const plans = [...(d.plans ?? [])];
+                                        plans[i] = {
+                                          ...plans[i],
+                                          price: {
+                                            ...(plans[i].price ?? {}),
+                                            yearly: Number(e.target.value),
+                                          },
+                                        };
+                                        return { ...d, plans };
+                                      })
                                     }
                                   />
                                 </div>
@@ -2156,13 +2128,11 @@ export function AgileStoreSettings() {
                                   Array.isArray(p.features)
                                     ? p.features
                                         .map((f: any) => {
-                                          // object {name, code} → tampilkan name
                                           if (
                                             typeof f === "object" &&
                                             f !== null
                                           )
                                             return f.name ?? f.code ?? "";
-                                          // string → bisa code atau name; jika code, ubah ke name
                                           const str = String(f ?? "");
                                           return (
                                             featureKeyToNameMap[str] ||
@@ -2186,9 +2156,7 @@ export function AgileStoreSettings() {
                                   const nameToKey =
                                     featureNameToAnyKeyMap || {};
                                   const codes = names.map((nm) => {
-                                    // name → code (kalau ada di map); kalau tidak ada, biarkan apa adanya
                                     if (nameToKey[nm]) return nameToKey[nm];
-                                    // bila user ketik code manual, tetap simpan
                                     if (
                                       nm.includes(".") ||
                                       nm.includes("_") ||
@@ -2198,22 +2166,14 @@ export function AgileStoreSettings() {
                                     return nm;
                                   });
 
-                                  setSections((prev) =>
-                                    prev.map((x) => {
-                                      if (x.key !== "pricing") return x;
-                                      const plans = [
-                                        ...(x.content.plans ?? []),
-                                      ];
-                                      const plan = { ...(plans[i] ?? {}) };
-                                      plan.features = names; // untuk UI (selalu nama)
-                                      plan.feature_codes = codes; // untuk submit ke backend
-                                      plans[i] = plan;
-                                      return {
-                                        ...x,
-                                        content: { ...x.content, plans },
-                                      };
-                                    })
-                                  );
+                                  mutateC("pricing", (d) => {
+                                    const plans = [...(d.plans ?? [])];
+                                    const plan = { ...(plans[i] ?? {}) };
+                                    plan.features = names;
+                                    plan.feature_codes = codes;
+                                    plans[i] = plan;
+                                    return { ...d, plans };
+                                  });
                                 }}
                                 rows={3}
                                 placeholder={"Feature 1\nFeature 2\nFeature 3"}
@@ -2222,22 +2182,14 @@ export function AgileStoreSettings() {
                               <Input
                                 value={p.cta ?? ""}
                                 onChange={(e) =>
-                                  setSections((prev) =>
-                                    prev.map((x) => {
-                                      if (x.key !== "pricing") return x;
-                                      const plans = [
-                                        ...(x.content.plans ?? []),
-                                      ];
-                                      plans[i] = {
-                                        ...plans[i],
-                                        cta: e.target.value,
-                                      };
-                                      return {
-                                        ...x,
-                                        content: { ...x.content, plans },
-                                      };
-                                    })
-                                  )
+                                  mutateC("pricing", (d) => {
+                                    const plans = [...(d.plans ?? [])];
+                                    plans[i] = {
+                                      ...plans[i],
+                                      cta: e.target.value,
+                                    };
+                                    return { ...d, plans };
+                                  })
                                 }
                                 placeholder="CTA"
                               />
@@ -2253,48 +2205,31 @@ export function AgileStoreSettings() {
               {activeSection === "cta" &&
                 (() => {
                   const s = getSection("cta");
+                  const c = getC(s);
                   return (
                     <div className="space-y-4">
                       <div className="grid md:grid-cols-2 gap-4">
                         <div>
                           <Label>Title</Label>
                           <Input
-                            value={s.content.title ?? ""}
+                            value={c.title ?? ""}
                             onChange={(e) =>
-                              setSections((prev) =>
-                                prev.map((x) =>
-                                  x.key === "cta"
-                                    ? {
-                                        ...x,
-                                        content: {
-                                          ...x.content,
-                                          title: e.target.value,
-                                        },
-                                      }
-                                    : x
-                                )
-                              )
+                              mutateC("cta", (d) => ({
+                                ...d,
+                                title: e.target.value,
+                              }))
                             }
                           />
                         </div>
                         <div>
                           <Label>Subtitle</Label>
                           <Input
-                            value={s.content.subtitle ?? ""}
+                            value={c.subtitle ?? ""}
                             onChange={(e) =>
-                              setSections((prev) =>
-                                prev.map((x) =>
-                                  x.key === "cta"
-                                    ? {
-                                        ...x,
-                                        content: {
-                                          ...x.content,
-                                          subtitle: e.target.value,
-                                        },
-                                      }
-                                    : x
-                                )
-                              )
+                              mutateC("cta", (d) => ({
+                                ...d,
+                                subtitle: e.target.value,
+                              }))
                             }
                           />
                         </div>
@@ -2303,42 +2238,24 @@ export function AgileStoreSettings() {
                         <div>
                           <Label>Primary Button</Label>
                           <Input
-                            value={s.content.primary ?? ""}
+                            value={c.primary ?? ""}
                             onChange={(e) =>
-                              setSections((prev) =>
-                                prev.map((x) =>
-                                  x.key === "cta"
-                                    ? {
-                                        ...x,
-                                        content: {
-                                          ...x.content,
-                                          primary: e.target.value,
-                                        },
-                                      }
-                                    : x
-                                )
-                              )
+                              mutateC("cta", (d) => ({
+                                ...d,
+                                primary: e.target.value,
+                              }))
                             }
                           />
                         </div>
                         <div>
                           <Label>Secondary Button</Label>
                           <Input
-                            value={s.content.secondary ?? ""}
+                            value={c.secondary ?? ""}
                             onChange={(e) =>
-                              setSections((prev) =>
-                                prev.map((x) =>
-                                  x.key === "cta"
-                                    ? {
-                                        ...x,
-                                        content: {
-                                          ...x.content,
-                                          secondary: e.target.value,
-                                        },
-                                      }
-                                    : x
-                                )
-                              )
+                              mutateC("cta", (d) => ({
+                                ...d,
+                                secondary: e.target.value,
+                              }))
                             }
                           />
                         </div>
@@ -2348,26 +2265,15 @@ export function AgileStoreSettings() {
                         <Textarea
                           rows={4}
                           value={
-                            Array.isArray(s.content.bullets)
-                              ? s.content.bullets.join("\n")
-                              : ""
+                            Array.isArray(c.bullets) ? c.bullets.join("\n") : ""
                           }
                           onChange={(e) =>
-                            setSections((prev) =>
-                              prev.map((x) =>
-                                x.key === "cta"
-                                  ? {
-                                      ...x,
-                                      content: {
-                                        ...x.content,
-                                        bullets: e.target.value
-                                          .split("\n")
-                                          .filter(Boolean),
-                                      },
-                                    }
-                                  : x
-                              )
-                            )
+                            mutateC("cta", (d) => ({
+                              ...d,
+                              bullets: e.target.value
+                                .split("\n")
+                                .filter(Boolean),
+                            }))
                           }
                         />
                       </div>
@@ -2379,28 +2285,18 @@ export function AgileStoreSettings() {
               {activeSection === "testimonials" &&
                 (() => {
                   const s = getSection("testimonials");
-                  const items: any[] = Array.isArray(s.content?.items)
-                    ? s.content.items
-                    : [];
+                  const c = getC(s);
+                  const items: any[] = Array.isArray(c?.items) ? c.items : [];
                   return (
                     <div className="space-y-4">
                       <Label>Section Title</Label>
                       <Input
-                        value={s.content.title ?? ""}
+                        value={c.title ?? ""}
                         onChange={(e) =>
-                          setSections((prev) =>
-                            prev.map((x) =>
-                              x.key === "testimonials"
-                                ? {
-                                    ...x,
-                                    content: {
-                                      ...x.content,
-                                      title: e.target.value,
-                                    },
-                                  }
-                                : x
-                            )
-                          )
+                          mutateC("testimonials", (d) => ({
+                            ...d,
+                            title: e.target.value,
+                          }))
                         }
                       />
                       <div className="space-y-3">
@@ -2413,60 +2309,42 @@ export function AgileStoreSettings() {
                               placeholder="Quote"
                               value={it.quote ?? ""}
                               onChange={(e) =>
-                                setSections((prev) =>
-                                  prev.map((x) => {
-                                    if (x.key !== "testimonials") return x;
-                                    const next = [...(x.content.items ?? [])];
-                                    next[i] = {
-                                      ...next[i],
-                                      quote: e.target.value,
-                                    };
-                                    return {
-                                      ...x,
-                                      content: { ...x.content, items: next },
-                                    };
-                                  })
-                                )
+                                mutateC("testimonials", (d) => {
+                                  const next = [...(d.items ?? [])];
+                                  next[i] = {
+                                    ...next[i],
+                                    quote: e.target.value,
+                                  };
+                                  return { ...d, items: next };
+                                })
                               }
                             />
                             <Input
                               placeholder="Name"
                               value={it.name ?? ""}
                               onChange={(e) =>
-                                setSections((prev) =>
-                                  prev.map((x) => {
-                                    if (x.key !== "testimonials") return x;
-                                    const next = [...(x.content.items ?? [])];
-                                    next[i] = {
-                                      ...next[i],
-                                      name: e.target.value,
-                                    };
-                                    return {
-                                      ...x,
-                                      content: { ...x.content, items: next },
-                                    };
-                                  })
-                                )
+                                mutateC("testimonials", (d) => {
+                                  const next = [...(d.items ?? [])];
+                                  next[i] = {
+                                    ...next[i],
+                                    name: e.target.value,
+                                  };
+                                  return { ...d, items: next };
+                                })
                               }
                             />
                             <Input
                               placeholder="Role"
                               value={it.role ?? ""}
                               onChange={(e) =>
-                                setSections((prev) =>
-                                  prev.map((x) => {
-                                    if (x.key !== "testimonials") return x;
-                                    const next = [...(x.content.items ?? [])];
-                                    next[i] = {
-                                      ...next[i],
-                                      role: e.target.value,
-                                    };
-                                    return {
-                                      ...x,
-                                      content: { ...x.content, items: next },
-                                    };
-                                  })
-                                )
+                                mutateC("testimonials", (d) => {
+                                  const next = [...(d.items ?? [])];
+                                  next[i] = {
+                                    ...next[i],
+                                    role: e.target.value,
+                                  };
+                                  return { ...d, items: next };
+                                })
                               }
                             />
                           </div>
@@ -2475,22 +2353,13 @@ export function AgileStoreSettings() {
                           variant="outline"
                           size="sm"
                           onClick={() =>
-                            setSections((prev) =>
-                              prev.map((x) =>
-                                x.key === "testimonials"
-                                  ? {
-                                      ...x,
-                                      content: {
-                                        ...x.content,
-                                        items: [
-                                          ...(x.content.items ?? []),
-                                          { quote: "", name: "", role: "" },
-                                        ],
-                                      },
-                                    }
-                                  : x
-                              )
-                            )
+                            mutateC("testimonials", (d) => ({
+                              ...d,
+                              items: [
+                                ...(d.items ?? []),
+                                { quote: "", name: "", role: "" },
+                              ],
+                            }))
                           }
                         >
                           <Plus className="h-4 w-4 mr-2" /> Add testimonial
@@ -2504,48 +2373,31 @@ export function AgileStoreSettings() {
               {activeSection === "footer" &&
                 (() => {
                   const s = getSection("footer");
+                  const c = getC(s);
                   return (
                     <div className="space-y-4">
                       <div className="grid md:grid-cols-2 gap-4">
                         <div>
                           <Label>Brand</Label>
                           <Input
-                            value={s.content.brand ?? ""}
+                            value={c.brand ?? ""}
                             onChange={(e) =>
-                              setSections((prev) =>
-                                prev.map((x) =>
-                                  x.key === "footer"
-                                    ? {
-                                        ...x,
-                                        content: {
-                                          ...x.content,
-                                          brand: e.target.value,
-                                        },
-                                      }
-                                    : x
-                                )
-                              )
+                              mutateC("footer", (d) => ({
+                                ...d,
+                                brand: e.target.value,
+                              }))
                             }
                           />
                         </div>
                         <div>
                           <Label>Newsletter Label</Label>
                           <Input
-                            value={s.content.newsletterLabel ?? ""}
+                            value={c.newsletterLabel ?? ""}
                             onChange={(e) =>
-                              setSections((prev) =>
-                                prev.map((x) =>
-                                  x.key === "footer"
-                                    ? {
-                                        ...x,
-                                        content: {
-                                          ...x.content,
-                                          newsletterLabel: e.target.value,
-                                        },
-                                      }
-                                    : x
-                                )
-                              )
+                              mutateC("footer", (d) => ({
+                                ...d,
+                                newsletterLabel: e.target.value,
+                              }))
                             }
                           />
                         </div>
@@ -2554,21 +2406,12 @@ export function AgileStoreSettings() {
                         <Label>Description</Label>
                         <Textarea
                           rows={3}
-                          value={s.content.description ?? ""}
+                          value={c.description ?? ""}
                           onChange={(e) =>
-                            setSections((prev) =>
-                              prev.map((x) =>
-                                x.key === "footer"
-                                  ? {
-                                      ...x,
-                                      content: {
-                                        ...x.content,
-                                        description: e.target.value,
-                                      },
-                                    }
-                                  : x
-                              )
-                            )
+                            mutateC("footer", (d) => ({
+                              ...d,
+                              description: e.target.value,
+                            }))
                           }
                         />
                       </div>
@@ -2578,26 +2421,17 @@ export function AgileStoreSettings() {
                           <Textarea
                             rows={4}
                             value={
-                              Array.isArray(s.content.quickLinks)
-                                ? s.content.quickLinks.join("\n")
+                              Array.isArray(c.quickLinks)
+                                ? c.quickLinks.join("\n")
                                 : ""
                             }
                             onChange={(e) =>
-                              setSections((prev) =>
-                                prev.map((x) =>
-                                  x.key === "footer"
-                                    ? {
-                                        ...x,
-                                        content: {
-                                          ...x.content,
-                                          quickLinks: e.target.value
-                                            .split("\n")
-                                            .filter(Boolean),
-                                        },
-                                      }
-                                    : x
-                                )
-                              )
+                              mutateC("footer", (d) => ({
+                                ...d,
+                                quickLinks: e.target.value
+                                  .split("\n")
+                                  .filter(Boolean),
+                              }))
                             }
                           />
                         </div>
@@ -2606,68 +2440,41 @@ export function AgileStoreSettings() {
                           <div className="grid md:grid-cols-3 gap-2">
                             <Input
                               placeholder="Email"
-                              value={s.content?.contact?.email ?? ""}
+                              value={c?.contact?.email ?? ""}
                               onChange={(e) =>
-                                setSections((prev) =>
-                                  prev.map((x) =>
-                                    x.key === "footer"
-                                      ? {
-                                          ...x,
-                                          content: {
-                                            ...x.content,
-                                            contact: {
-                                              ...(x.content.contact ?? {}),
-                                              email: e.target.value,
-                                            },
-                                          },
-                                        }
-                                      : x
-                                  )
-                                )
+                                mutateC("footer", (d) => ({
+                                  ...d,
+                                  contact: {
+                                    ...(d.contact ?? {}),
+                                    email: e.target.value,
+                                  },
+                                }))
                               }
                             />
                             <Input
                               placeholder="Phone"
-                              value={s.content?.contact?.phone ?? ""}
+                              value={c?.contact?.phone ?? ""}
                               onChange={(e) =>
-                                setSections((prev) =>
-                                  prev.map((x) =>
-                                    x.key === "footer"
-                                      ? {
-                                          ...x,
-                                          content: {
-                                            ...x.content,
-                                            contact: {
-                                              ...(x.content.contact ?? {}),
-                                              phone: e.target.value,
-                                            },
-                                          },
-                                        }
-                                      : x
-                                  )
-                                )
+                                mutateC("footer", (d) => ({
+                                  ...d,
+                                  contact: {
+                                    ...(d.contact ?? {}),
+                                    phone: e.target.value,
+                                  },
+                                }))
                               }
                             />
                             <Input
                               placeholder="Address"
-                              value={s.content?.contact?.address ?? ""}
+                              value={c?.contact?.address ?? ""}
                               onChange={(e) =>
-                                setSections((prev) =>
-                                  prev.map((x) =>
-                                    x.key === "footer"
-                                      ? {
-                                          ...x,
-                                          content: {
-                                            ...x.content,
-                                            contact: {
-                                              ...(x.content.contact ?? {}),
-                                              address: e.target.value,
-                                            },
-                                          },
-                                        }
-                                      : x
-                                  )
-                                )
+                                mutateC("footer", (d) => ({
+                                  ...d,
+                                  contact: {
+                                    ...(d.contact ?? {}),
+                                    address: e.target.value,
+                                  },
+                                }))
                               }
                             />
                           </div>
@@ -2681,54 +2488,35 @@ export function AgileStoreSettings() {
               {activeSection === "about" &&
                 (() => {
                   const s = getSection("about");
-                  const feats: string[] = Array.isArray(s.content?.features)
-                    ? s.content.features
+                  const c = getC(s);
+                  const feats: string[] = Array.isArray(c?.features)
+                    ? c.features
                     : [];
-                  const steps: any[] = Array.isArray(s.content?.steps)
-                    ? s.content.steps
-                    : [];
+                  const steps: any[] = Array.isArray(c?.steps) ? c.steps : [];
                   return (
                     <div className="space-y-4">
                       <div className="grid md:grid-cols-2 gap-4">
                         <div>
                           <Label>Headline</Label>
                           <Input
-                            value={s.content.headline ?? ""}
+                            value={c.headline ?? ""}
                             onChange={(e) =>
-                              setSections((prev) =>
-                                prev.map((x) =>
-                                  x.key === "about"
-                                    ? {
-                                        ...x,
-                                        content: {
-                                          ...x.content,
-                                          headline: e.target.value,
-                                        },
-                                      }
-                                    : x
-                                )
-                              )
+                              mutateC("about", (d) => ({
+                                ...d,
+                                headline: e.target.value,
+                              }))
                             }
                           />
                         </div>
                         <div>
                           <Label>Subheadline</Label>
                           <Input
-                            value={s.content.subheadline ?? ""}
+                            value={c.subheadline ?? ""}
                             onChange={(e) =>
-                              setSections((prev) =>
-                                prev.map((x) =>
-                                  x.key === "about"
-                                    ? {
-                                        ...x,
-                                        content: {
-                                          ...x.content,
-                                          subheadline: e.target.value,
-                                        },
-                                      }
-                                    : x
-                                )
-                              )
+                              mutateC("about", (d) => ({
+                                ...d,
+                                subheadline: e.target.value,
+                              }))
                             }
                           />
                         </div>
@@ -2740,21 +2528,12 @@ export function AgileStoreSettings() {
                           rows={4}
                           value={feats.join("\n")}
                           onChange={(e) =>
-                            setSections((prev) =>
-                              prev.map((x) =>
-                                x.key === "about"
-                                  ? {
-                                      ...x,
-                                      content: {
-                                        ...x.content,
-                                        features: e.target.value
-                                          .split("\n")
-                                          .filter(Boolean),
-                                      },
-                                    }
-                                  : x
-                              )
-                            )
+                            mutateC("about", (d) => ({
+                              ...d,
+                              features: e.target.value
+                                .split("\n")
+                                .filter(Boolean),
+                            }))
                           }
                         />
                       </div>
@@ -2770,40 +2549,28 @@ export function AgileStoreSettings() {
                               placeholder="Title"
                               value={st.title ?? ""}
                               onChange={(e) =>
-                                setSections((prev) =>
-                                  prev.map((x) => {
-                                    if (x.key !== "about") return x;
-                                    const next = [...(x.content.steps ?? [])];
-                                    next[i] = {
-                                      ...next[i],
-                                      title: e.target.value,
-                                    };
-                                    return {
-                                      ...x,
-                                      content: { ...x.content, steps: next },
-                                    };
-                                  })
-                                )
+                                mutateC("about", (d) => {
+                                  const next = [...(d.steps ?? [])];
+                                  next[i] = {
+                                    ...next[i],
+                                    title: e.target.value,
+                                  };
+                                  return { ...d, steps: next };
+                                })
                               }
                             />
                             <Input
                               placeholder="Description"
                               value={st.description ?? ""}
                               onChange={(e) =>
-                                setSections((prev) =>
-                                  prev.map((x) => {
-                                    if (x.key !== "about") return x;
-                                    const next = [...(x.content.steps ?? [])];
-                                    next[i] = {
-                                      ...next[i],
-                                      description: e.target.value,
-                                    };
-                                    return {
-                                      ...x,
-                                      content: { ...x.content, steps: next },
-                                    };
-                                  })
-                                )
+                                mutateC("about", (d) => {
+                                  const next = [...(d.steps ?? [])];
+                                  next[i] = {
+                                    ...next[i],
+                                    description: e.target.value,
+                                  };
+                                  return { ...d, steps: next };
+                                })
                               }
                             />
                           </div>
@@ -2812,22 +2579,13 @@ export function AgileStoreSettings() {
                           variant="outline"
                           size="sm"
                           onClick={() =>
-                            setSections((prev) =>
-                              prev.map((x) =>
-                                x.key === "about"
-                                  ? {
-                                      ...x,
-                                      content: {
-                                        ...x.content,
-                                        steps: [
-                                          ...(x.content.steps ?? []),
-                                          { title: "", description: "" },
-                                        ],
-                                      },
-                                    }
-                                  : x
-                              )
-                            )
+                            mutateC("about", (d) => ({
+                              ...d,
+                              steps: [
+                                ...(d.steps ?? []),
+                                { title: "", description: "" },
+                              ],
+                            }))
                           }
                         >
                           <Plus className="h-4 w-4 mr-2" /> Add step
@@ -2841,48 +2599,31 @@ export function AgileStoreSettings() {
               {activeSection === "contact" &&
                 (() => {
                   const s = getSection("contact");
+                  const c = getC(s);
                   return (
                     <div className="space-y-4">
                       <div className="grid md:grid-cols-2 gap-4">
                         <div>
                           <Label>Headline</Label>
                           <Input
-                            value={s.content.headline ?? ""}
+                            value={c.headline ?? ""}
                             onChange={(e) =>
-                              setSections((prev) =>
-                                prev.map((x) =>
-                                  x.key === "contact"
-                                    ? {
-                                        ...x,
-                                        content: {
-                                          ...x.content,
-                                          headline: e.target.value,
-                                        },
-                                      }
-                                    : x
-                                )
-                              )
+                              mutateC("contact", (d) => ({
+                                ...d,
+                                headline: e.target.value,
+                              }))
                             }
                           />
                         </div>
                         <div>
                           <Label>Subheadline</Label>
                           <Input
-                            value={s.content.subheadline ?? ""}
+                            value={c.subheadline ?? ""}
                             onChange={(e) =>
-                              setSections((prev) =>
-                                prev.map((x) =>
-                                  x.key === "contact"
-                                    ? {
-                                        ...x,
-                                        content: {
-                                          ...x.content,
-                                          subheadline: e.target.value,
-                                        },
-                                      }
-                                    : x
-                                )
-                              )
+                              mutateC("contact", (d) => ({
+                                ...d,
+                                subheadline: e.target.value,
+                              }))
                             }
                           />
                         </div>
@@ -2890,80 +2631,44 @@ export function AgileStoreSettings() {
                       <div className="grid md:grid-cols-3 gap-4">
                         <Input
                           placeholder="Email"
-                          value={s.content.email ?? ""}
+                          value={c.email ?? ""}
                           onChange={(e) =>
-                            setSections((prev) =>
-                              prev.map((x) =>
-                                x.key === "contact"
-                                  ? {
-                                      ...x,
-                                      content: {
-                                        ...x.content,
-                                        email: e.target.value,
-                                      },
-                                    }
-                                  : x
-                              )
-                            )
+                            mutateC("contact", (d) => ({
+                              ...d,
+                              email: e.target.value,
+                            }))
                           }
                         />
                         <Input
                           placeholder="Phone"
-                          value={s.content.phone ?? ""}
+                          value={c.phone ?? ""}
                           onChange={(e) =>
-                            setSections((prev) =>
-                              prev.map((x) =>
-                                x.key === "contact"
-                                  ? {
-                                      ...x,
-                                      content: {
-                                        ...x.content,
-                                        phone: e.target.value,
-                                      },
-                                    }
-                                  : x
-                              )
-                            )
+                            mutateC("contact", (d) => ({
+                              ...d,
+                              phone: e.target.value,
+                            }))
                           }
                         />
                         <Input
                           placeholder="Address"
-                          value={s.content.address ?? ""}
+                          value={c.address ?? ""}
                           onChange={(e) =>
-                            setSections((prev) =>
-                              prev.map((x) =>
-                                x.key === "contact"
-                                  ? {
-                                      ...x,
-                                      content: {
-                                        ...x.content,
-                                        address: e.target.value,
-                                      },
-                                    }
-                                  : x
-                              )
-                            )
+                            mutateC("contact", (d) => ({
+                              ...d,
+                              address: e.target.value,
+                            }))
                           }
                         />
                       </div>
                       <div>
                         <Label>CTA Label</Label>
                         <Input
-                          value={s.content.ctaLabel ?? ""}
+                          value={c.ctaLabel ?? ""}
                           onChange={(e) =>
-                            setSections((prev) =>
-                              prev.map((x) =>
-                                x.key === "contact"
-                                  ? {
-                                      ...x,
-                                      content: {
-                                        ...x.content,
-                                        ctaLabel: e.target.value,
-                                      },
-                                    }
-                                  : x
-                              )
-                            )
+                            mutateC("contact", (d) => ({
+                              ...d,
+                              ctaLabel: e.target.value,
+                            }))
                           }
                         />
                       </div>
@@ -2980,7 +2685,10 @@ export function AgileStoreSettings() {
         <DialogContent className="max-w-[95vw]">
           <DialogHeader>
             <div className="flex items-center justify-between">
-              <DialogTitle>Preview — All Sections</DialogTitle>
+              <DialogTitle>
+                Preview — All Sections (
+                {activeLang === "en" ? "English" : "Indonesia"})
+              </DialogTitle>
               <div className="flex gap-2">
                 <Button
                   variant={

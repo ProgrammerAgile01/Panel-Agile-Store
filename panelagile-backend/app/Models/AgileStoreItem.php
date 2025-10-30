@@ -11,10 +11,15 @@ class AgileStoreItem extends Model
     protected $fillable = [
         'section_id',
         'item_type',
-        'title','subtitle','description','cta_label','order',
+        // ID (lama / default)
+        'title','subtitle','description','cta_label',
+        // EN (baru)
+        'title_en','subtitle_en','description_en','cta_label_en',
+        // common
+        'order',
         'product_code','package_id','duration_id',
         'price_monthly','price_yearly',
-        'extras',
+        'extras','extras_en',
     ];
 
     protected $casts = [
@@ -22,6 +27,7 @@ class AgileStoreItem extends Model
         'price_monthly' => 'decimal:2',
         'price_yearly'  => 'decimal:2',
         'extras'        => 'array',
+        'extras_en'     => 'array',
     ];
 
     public function section()

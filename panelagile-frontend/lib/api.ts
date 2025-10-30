@@ -2,6 +2,7 @@
 export const API_URL = "http://localhost:8000/api";
 export const WAREHOUSE_API = "http://localhost:9000/api";
 const WAREHOUSE_KEY = "dev-panel-key-abc";
+export const TRANSLATE_API = `${API_URL}/translate-batch`;
 
 import { getToken, setToken, clearToken } from "./auth";
 
@@ -1211,6 +1212,34 @@ export async function uploadFile(file: File): Promise<string> {
 
 /* ===================== AGILE STORE SETTINGS ===================== */
 
+export type AgileItem = {
+  id?: number;
+  item_type?: string;
+
+  // Lokal/ID
+  title?: string | null;
+  subtitle?: string | null;
+  description?: string | null;
+  cta_label?: string | null;
+
+  // EN (dasar)
+  title_en?: string | null;
+  subtitle_en?: string | null;
+  description_en?: string | null;
+  cta_label_en?: string | null;
+
+  order?: number;
+  product_code?: string | null;
+  package_id?: number | string | null;
+  duration_id?: number | string | null;
+
+  price_monthly?: number | string | null;
+  price_yearly?: number | string | null;
+
+  extras?: any | null; // ID
+  extras_en?: any | null; // EN
+};
+
 export type AgileSection = {
   id?: number;
   key:
@@ -1228,8 +1257,12 @@ export type AgileSection = {
   enabled: boolean;
   order: number;
   theme?: any | null;
-  content?: any | null;
-  items?: any[];
+
+  // bilingual
+  content?: any | null; // ID (lokal)
+  content_en?: any | null; // EN (dasar)
+
+  items?: AgileItem[];
 };
 
 // Kembalikan SELALU { data: AgileSection[] }
@@ -1239,8 +1272,8 @@ export async function getAgileSections(): Promise<{ data: AgileSection[] }> {
     cache: "no-store",
   });
   if (!res.ok) {
-    await parseError(res); // throws
-    throw new Error("Failed to load sections"); // TS happy
+    await parseError(res);
+    throw new Error("Failed to load sections");
   }
   const json = await res.json().catch(() => ({}));
   const rows: AgileSection[] = Array.isArray(json?.data)
@@ -1285,7 +1318,6 @@ export async function upsertAgileSections(payload: {
     await parseError(res);
     throw new Error("Failed to save sections");
   }
-  // Normalisasi respons
   const json = await res.json().catch(() => ({}));
   return { success: true, ...(typeof json === "object" ? json : {}) };
 }

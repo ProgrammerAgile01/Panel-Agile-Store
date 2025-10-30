@@ -12,14 +12,15 @@ class AgileStoreSection extends Model
     protected $table = 'agile_store_sections';
 
     protected $fillable = [
-        'key','name','enabled','order','theme','content',
+        'key','name','enabled','order','theme','content','content_en',
     ];
 
     protected $casts = [
-        'enabled' => 'boolean',
-        'order'   => 'integer',
-        'theme'   => 'array',
-        'content' => 'array',
+        'enabled'    => 'boolean',
+        'order'      => 'integer',
+        'theme'      => 'array',
+        'content'    => 'array',
+        'content_en' => 'array',
     ];
 
     public function items()
