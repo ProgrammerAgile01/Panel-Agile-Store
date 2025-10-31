@@ -1139,6 +1139,9 @@ export async function saveLandingByProduct(
       enabled: boolean;
       display_order: number;
       content?: any;
+      // ✅ baru: kirim mirror EN jika ada
+      content_en?: any;
+      // (opsional kalau mau pakai): name_en?: string;
     }>;
   }
 ) {

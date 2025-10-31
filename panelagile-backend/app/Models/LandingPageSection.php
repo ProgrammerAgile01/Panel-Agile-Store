@@ -22,12 +22,16 @@ class LandingPageSection extends Model
         'enabled',
         'display_order',
         'content',
+        // tambahkan:
+        'content_en',
     ];
 
     protected $casts = [
         'enabled' => 'boolean',
         'display_order' => 'integer',
         'content' => 'array',
+        // tambahkan:
+        'content_en' => 'array',
     ];
 
     protected static function booted()
