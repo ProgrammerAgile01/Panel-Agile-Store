@@ -881,7 +881,7 @@ export type PricelistItemDTO = {
   duration_id: string | number;
   package_id: string | number;
   price: number;
-  discount?: number | null;
+  discount?: number | null; // backend nominal (dari persen)
   min_billing_cycle?: number | null;
   prorate?: boolean | null;
   effective_start?: string | null;
@@ -894,7 +894,6 @@ export type PricelistDTO = {
   items: PricelistItemDTO[];
 };
 
-// ---------- PRICELIST API ----------
 export async function getPricelistByProduct(
   codeOrId: string
 ): Promise<PricelistDTO> {
@@ -911,14 +910,9 @@ export async function getPricelistByProduct(
       txt || `Gagal mengambil pricelist (${res.status} ${res.statusText})`
     );
   }
-  // { currency, tax_mode, items[] }
   return res.json();
 }
 
-/**
- * Update header (currency/tax_mode) SAJA.
- * Lindungi dengan JWT jika dibutuhkan (authHeaders).
- */
 export async function updatePricelistHeader(
   codeOrId: string,
   payload: { currency: string; tax_mode: "inclusive" | "exclusive" }
@@ -941,10 +935,6 @@ export async function updatePricelistHeader(
   return res.json();
 }
 
-/**
- * Bulk upsert item harga. Payload boleh sekaligus kirim currency & tax_mode
- * agar sinkron dengan toolbar di UI (tanpa panggil PUT terpisah).
- */
 export async function upsertPricelistItems(
   codeOrId: string,
   payload: PricelistDTO
@@ -1099,10 +1089,7 @@ export async function listDurationsActive(): Promise<SimpleDuration[]> {
 }
 
 /**
- * Helper gabungan buat komponen Pricelist:
- * - ambil produk list
- * - ambil packages & durations untuk product terpilih
- * - ambil pricelist untuk product terpilih
+ * Helper gabungan buat komponen Pricelist
  */
 export async function loadPricelistBundle(codeOrId: string) {
   const [packages, durations, pricelist] = await Promise.all([
@@ -1112,7 +1099,6 @@ export async function loadPricelistBundle(codeOrId: string) {
   ]);
   return { packages, durations, pricelist };
 }
-
 // GET landing
 export async function getLandingByProduct(codeOrId: string) {
   const res = await fetch(
