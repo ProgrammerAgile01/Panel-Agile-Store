@@ -1,45 +1,80 @@
-"use client"
+"use client";
 
-import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
+import {
+  Area,
+  AreaChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 
-const data = [
-  { month: "Jan", revenue: 32000, target: 30000 },
-  { month: "Feb", revenue: 35000, target: 32000 },
-  { month: "Mar", revenue: 38000, target: 35000 },
-  { month: "Apr", revenue: 42000, target: 38000 },
-  { month: "May", revenue: 45000, target: 42000 },
-  { month: "Jun", revenue: 48000, target: 45000 },
-]
+type Props = {
+  labels: string[];
+  values: number[];
+};
 
-export function RevenueChart() {
+export function RevenueChart({ labels, values }: Props) {
+  const data = labels.map((label, i) => ({
+    month: label,
+    revenue: values[i] ?? 0,
+  }));
+
   return (
     <div className="h-[300px] w-full">
       <ResponsiveContainer width="100%" height="100%">
         <AreaChart data={data}>
           <defs>
             <linearGradient id="revenueGradient" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.3} />
-              <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
+              <stop
+                offset="5%"
+                stopColor="hsl(var(--primary))"
+                stopOpacity={0.3}
+              />
+              <stop
+                offset="95%"
+                stopColor="hsl(var(--primary))"
+                stopOpacity={0}
+              />
             </linearGradient>
           </defs>
-          <XAxis dataKey="month" axisLine={false} tickLine={false} className="text-xs fill-muted-foreground" />
+          <XAxis
+            dataKey="month"
+            axisLine={false}
+            tickLine={false}
+            className="text-xs fill-muted-foreground"
+          />
           <YAxis
             axisLine={false}
             tickLine={false}
             className="text-xs fill-muted-foreground"
-            tickFormatter={(value) => `$${value / 1000}k`}
+            tickFormatter={(value) =>
+              (value as number).toLocaleString("id-ID", {
+                style: "currency",
+                currency: "IDR",
+                maximumFractionDigits: 0,
+              })
+            }
           />
           <Tooltip
             content={({ active, payload, label }) => {
               if (active && payload && payload.length) {
+                const v = payload[0].value as number;
                 return (
-                  <div className="glass-morphism p-3 border border-border rounded-lg">
-                    <p className="text-sm font-medium">{label}</p>
-                    <p className="text-sm text-primary">Revenue: ${payload[0].value?.toLocaleString()}</p>
+                  <div className="glass-morphism p-3 border border-border rounded-lg text-xs">
+                    <p className="font-medium">{label}</p>
+                    <p className="text-primary">
+                      Pendapatan:{" "}
+                      {v.toLocaleString("id-ID", {
+                        style: "currency",
+                        currency: "IDR",
+                        maximumFractionDigits: 0,
+                      })}
+                    </p>
                   </div>
-                )
+                );
               }
-              return null
+              return null;
             }}
           />
           <Area
@@ -52,5 +87,5 @@ export function RevenueChart() {
         </AreaChart>
       </ResponsiveContainer>
     </div>
-  )
+  );
 }

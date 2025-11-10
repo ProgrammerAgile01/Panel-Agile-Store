@@ -1401,3 +1401,138 @@ export async function deleteAddon(id: number | string) {
   if (!r.ok) return parseError(r);
   return r.json();
 }
+// DASHBOARD
+/**
+ * Build query string safely from object (ignores undefined/null)
+ * Uses URLSearchParams to avoid manual encoding bugs.
+ */
+export function buildQuery(params: Record<string, any> = {}) {
+  const entries: [string, string][] = [];
+  for (const [k, v] of Object.entries(params)) {
+    if (v === undefined || v === null) continue;
+    if (Array.isArray(v)) {
+      for (const item of v) {
+        if (item === undefined || item === null) continue;
+        entries.push([k, String(item)]);
+      }
+    } else {
+      entries.push([k, String(v)]);
+    }
+  }
+  if (entries.length === 0) return "";
+  const usp = new URLSearchParams(entries);
+  return `?${usp.toString()}`;
+}
+
+/* ---------------------------
+   Types
+--------------------------- */
+
+export type OverviewResponse = {
+  success: boolean;
+  data: {
+    total_subscriptions: number;
+    active_subscriptions: number;
+    expiring_soon: number;
+    total_customers: number;
+    new_customers_this_month: number;
+    monthly_revenue: number;
+    revenue_last_month: number;
+    total_products: number;
+    last_updated: string;
+  };
+};
+
+export type ChartResponse = {
+  success: boolean;
+  data: {
+    labels: string[];
+    values: number[];
+  };
+};
+
+export type ProductPerformanceItem = {
+  product_code: string;
+  product_name: string;
+  revenue: number;
+  orders_count: number;
+};
+
+export type ProductPerformanceResponse = {
+  success: boolean;
+  data: ProductPerformanceItem[];
+};
+
+/* ---------------------------
+   API functions
+--------------------------- */
+
+/** GET /dashboard/overview */
+export async function getDashboardOverview(): Promise<OverviewResponse> {
+  const r = await fetch(`${API_URL}/dashboard/overview`, {
+    method: "GET",
+    headers: authHeaders(),
+    credentials: "include",
+    cache: "no-store",
+  });
+  if (!r.ok) return Promise.reject(await parseError(r));
+  return r.json();
+}
+
+/** GET /dashboard/revenue-chart?months=6 */
+export async function getRevenueChart(months = 6): Promise<ChartResponse> {
+  const q = buildQuery({ months });
+  const r = await fetch(`${API_URL}/dashboard/revenue-chart${q}`, {
+    method: "GET",
+    headers: authHeaders(),
+    credentials: "include",
+    cache: "no-store",
+  });
+  if (!r.ok) return Promise.reject(await parseError(r));
+  return r.json();
+}
+
+/** GET /dashboard/customer-growth?months=6 */
+export async function getCustomerGrowth(months = 6): Promise<ChartResponse> {
+  const q = buildQuery({ months });
+  const r = await fetch(`${API_URL}/dashboard/customer-growth${q}`, {
+    method: "GET",
+    headers: authHeaders(),
+    credentials: "include",
+    cache: "no-store",
+  });
+  if (!r.ok) return Promise.reject(await parseError(r));
+  return r.json();
+}
+
+/** GET /dashboard/product-performance?limit=5 */
+export async function getProductPerformance(
+  limit = 5
+): Promise<ProductPerformanceResponse> {
+  const q = buildQuery({ limit });
+  const r = await fetch(`${API_URL}/dashboard/product-performance${q}`, {
+    method: "GET",
+    headers: authHeaders(),
+    credentials: "include",
+    cache: "no-store",
+  });
+  if (!r.ok) return Promise.reject(await parseError(r));
+  return r.json();
+}
+
+/** GET /dashboard/expiring-subscriptions?days=7&page=1&per_page=25 */
+export async function getExpiringSubscriptions(
+  days = 7,
+  page = 1,
+  per_page = 25
+) {
+  const q = buildQuery({ days, page, per_page });
+  const r = await fetch(`${API_URL}/dashboard/expiring-subscriptions${q}`, {
+    method: "GET",
+    headers: authHeaders(),
+    credentials: "include",
+    cache: "no-store",
+  });
+  if (!r.ok) return Promise.reject(await parseError(r));
+  return r.json();
+}

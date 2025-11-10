@@ -29,6 +29,7 @@ use App\Http\Middleware\VerifyServiceKey;
 use App\Http\Controllers\AgileStoreSettingsController;
 use App\Http\Controllers\WhatsappRecipientController;
 use App\Http\Controllers\TranslateBatchController;
+use App\Http\Controllers\DashboardController;
 
 
 
@@ -327,6 +328,18 @@ Route::middleware(['jwt.auth'])->group(function () {
     Route::post('/mst-addons', [ProductAddonController::class, 'store']); // ADMIN
     Route::put('/mst-addons/{id}', [ProductAddonController::class, 'update']); // ADMIN
     Route::delete('/mst-addons/{id}', [ProductAddonController::class, 'destroy']); // ADMIN
+});
+
+// DASHBOARD
+
+
+Route::prefix('dashboard')->group(function () {
+    // jika butuh auth, wrap dengan middleware('auth:sanctum') atau middleware('auth:api')
+    Route::get('/overview', [DashboardController::class, 'overview']);
+    Route::get('/revenue-chart', [DashboardController::class, 'revenueChart']);
+    Route::get('/customer-growth', [DashboardController::class, 'customerGrowth']);
+    Route::get('/product-performance', [DashboardController::class, 'productPerformance']);
+    Route::get('/expiring-subscriptions', [DashboardController::class, 'expiringSubscriptions']);
 });
 
 /*
