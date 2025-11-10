@@ -26,6 +26,7 @@ import { WhatsAppSettings } from "@/components/whatsapp-settings";
 // API helpers
 import { login as apiLogin, me as apiMe, logout as apiLogout } from "@/lib/api";
 import { getToken, clearToken } from "@/lib/auth";
+import { MasterAddons } from "@/components/product-addon";
 
 export default function AdminDashboard() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -119,6 +120,8 @@ export default function AdminDashboard() {
         return <Durations />;
       case "pricelist":
         return <Pricelist />;
+      case "master-addons":
+        return <MasterAddons />
       case "level-user":
         return <LevelUser />;
       case "matrix-level":

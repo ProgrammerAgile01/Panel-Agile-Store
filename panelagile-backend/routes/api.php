@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Catalog\ProductCatalogController;
+use App\Http\Controllers\ProductAddonController;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Log;
@@ -315,6 +316,17 @@ Route::middleware(['jwt.auth'])->group(function () {
 
     // optional stats
     Route::get('/whatsapp-recipients/stats', [WhatsappRecipientController::class, 'stats']);
+});
+
+// ADDON
+Route::middleware(['jwt.auth'])->group(function () {
+    Route::get('/mst-addons', [ProductAddonController::class, 'index']); // ADMIN (JWT) via middleware group di projectmu
+    Route::get('/mst-addons/{id}', [ProductAddonController::class, 'show']); // ADMIN
+    Route::get('/mst-addons/by-product/{codeOrId}', [ProductAddonController::class, 'listByProduct']); // public/admin
+
+    Route::post('/mst-addons', [ProductAddonController::class, 'store']); // ADMIN
+    Route::put('/mst-addons/{id}', [ProductAddonController::class, 'update']); // ADMIN
+    Route::delete('/mst-addons/{id}', [ProductAddonController::class, 'destroy']); // ADMIN
 });
 
 /*

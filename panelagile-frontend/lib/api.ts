@@ -1310,3 +1310,94 @@ export async function upsertAgileSections(payload: {
   const json = await res.json().catch(() => ({}));
   return { success: true, ...(typeof json === "object" ? json : {}) };
 }
+
+// === MASTER ADDONS (Panel) ===
+export async function panelListAddonsByProduct(
+  codeOrId: string,
+  includeInactive = true
+) {
+  const url = new URL(
+    `${API_URL}/mst-addons/by-product/${encodeURIComponent(codeOrId)}`
+  );
+  if (includeInactive) url.searchParams.set("include_inactive", "1");
+
+  const r = await fetch(url.toString(), {
+    headers: authHeaders({ Accept: "application/json" }),
+    cache: "no-store",
+  });
+  if (!r.ok) return parseError(r);
+  return r.json(); // { data: [...] }
+}
+
+export async function createAddon(payload: {
+  product_code: string;
+  name: string;
+  addon_code?: string;
+  description?: string;
+  kind?: "quantity" | "toggle";
+  pricing_mode?: "per_unit_per_cycle" | "one_time";
+  unit_label?: string;
+  min_qty?: number;
+  step_qty?: number;
+  max_qty?: number | null;
+  currency?: string;
+  unit_price?: number;
+  status?: "active" | "inactive";
+  order_number?: number;
+  notes?: string;
+}) {
+  const r = await fetch(`${API_URL}/mst-addons`, {
+    method: "POST",
+    headers: authHeaders({
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    }),
+    credentials: "include",
+    body: JSON.stringify(payload),
+  });
+  if (!r.ok) return parseError(r);
+  return r.json();
+}
+
+export async function updateAddon(
+  id: number | string,
+  payload: Partial<{
+    product_code: string;
+    name: string;
+    addon_code: string;
+    description: string;
+    kind: "quantity" | "toggle";
+    pricing_mode: "per_unit_per_cycle" | "one_time";
+    unit_label: string;
+    min_qty: number;
+    step_qty: number;
+    max_qty: number | null;
+    currency: string;
+    unit_price: number;
+    status: "active" | "inactive";
+    order_number: number;
+    notes: string;
+  }>
+) {
+  const r = await fetch(`${API_URL}/mst-addons/${id}`, {
+    method: "PUT",
+    headers: authHeaders({
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    }),
+    credentials: "include",
+    body: JSON.stringify(payload),
+  });
+  if (!r.ok) return parseError(r);
+  return r.json();
+}
+
+export async function deleteAddon(id: number | string) {
+  const r = await fetch(`${API_URL}/mst-addons/${id}`, {
+    method: "DELETE",
+    headers: authHeaders({ Accept: "application/json" }),
+    credentials: "include",
+  });
+  if (!r.ok) return parseError(r);
+  return r.json();
+}
