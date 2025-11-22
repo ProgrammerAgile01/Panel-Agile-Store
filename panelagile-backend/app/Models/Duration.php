@@ -19,9 +19,11 @@ class Duration extends Model
         'is_default',
         'status',
         'notes',
+        'addon_discount_percent',
     ];
 
     protected $casts = [
         'is_default' => 'boolean',
+        'addon_discount_percent' => 'integer',
     ];
 }

@@ -834,6 +834,7 @@ export type DurationPayload = {
   is_default?: boolean;
   status: "active" | "archived";
   notes?: string | null;
+  addon_discount_percent?: number | null;
 };
 
 export async function createDuration(payload: DurationPayload) {

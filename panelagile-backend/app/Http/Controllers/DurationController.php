@@ -58,7 +58,13 @@ class DurationController extends Controller
             'is_default' => 'boolean',
             'status'     => 'required|in:active,archived',
             'notes'      => 'nullable|string',
+            'addon_discount_percent' => 'nullable|integer|min:0|max:100',
         ]);
+
+        // Defaultkan ke 0 kalau tidak diisi
+        if (!isset($validated['addon_discount_percent'])) {
+            $validated['addon_discount_percent'] = 0;
+        }
 
         if (!empty($validated['is_default']) && $validated['is_default']) {
             Duration::where('is_default', true)->update(['is_default' => false]);
@@ -81,7 +87,13 @@ class DurationController extends Controller
             'is_default' => 'boolean',
             'status'     => 'required|in:active,archived',
             'notes'      => 'nullable|string',
+            'addon_discount_percent' => 'nullable|integer|min:0|max:100',
         ]);
+
+        if (!isset($validated['addon_discount_percent'])) {
+            // kalau kosong, anggap 0 (tidak ada diskon addon)
+            $validated['addon_discount_percent'] = 0;
+        }
 
         if (!empty($validated['is_default']) && $validated['is_default']) {
             Duration::where('id', '<>', $id)->update(['is_default' => false]);
